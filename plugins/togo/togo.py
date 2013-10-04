@@ -23,6 +23,8 @@ SCRIPTDIR = os.path.dirname(__file__)
 
 CLASS_NAME = 'ToGo'
 
+BADCHAR = r'\/:;*?!"<>|'  # Characters to remove from filenames
+
 # Some error/status message templates
 
 MISSING = """<h3>Missing Data</h3> <p>You must set both "tivo_mak" and 
@@ -230,7 +232,10 @@ class ToGo(Plugin):
             else:
                 name.insert(-1, ' (PS)')
         name.insert(-1, '.')
-        outfile = os.path.join(togo_path, ''.join(name))
+        name = ''.join(name)
+        for ch in BADCHAR:
+            name = name.replace(ch, '')
+        outfile = os.path.join(togo_path, name)
 
         if status[url]['save']:
             meta = basic_meta[url]
