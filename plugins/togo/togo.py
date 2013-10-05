@@ -23,7 +23,10 @@ SCRIPTDIR = os.path.dirname(__file__)
 
 CLASS_NAME = 'ToGo'
 
-BADCHAR = r'\/:;*?!"<>|'  # Characters to remove from filenames
+# Characters to remove from filenames
+
+BADCHAR = {'\\': '-', '/': '-', ':': ' -', ';': ',', '*': '.',
+           '?': '.', '!': '.', '"': "'", '<': '(', '>': ')', '|': ' '}
 
 # Some error/status message templates
 
@@ -234,7 +237,7 @@ class ToGo(Plugin):
         name.insert(-1, '.')
         name = ''.join(name)
         for ch in BADCHAR:
-            name = name.replace(ch, '')
+            name = name.replace(ch, BADCHAR[ch])
         outfile = os.path.join(togo_path, name)
 
         if status[url]['save']:
