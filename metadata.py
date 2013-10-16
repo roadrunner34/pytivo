@@ -652,7 +652,7 @@ def _tdcat_bin(tdcat_path, full_path, tivo_mak):
     return tdcat.stdout.read()
 
 def _tdcat_py(full_path, tivo_mak):
-    xml_data = []
+    xml_data = {}
 
     tfile = open(full_path, 'rb')
     header = tfile.read(16)
@@ -662,32 +662,31 @@ def _tdcat_py(full_path, tivo_mak):
 
     count = 0
     for i in xrange(chunks):
-        chunk_size, data_size, id, typ = struct.unpack('>LLHH',
+        chunk_size, data_size, id, enc = struct.unpack('>LLHH',
             rawdata[count:count + 12])
         count += 12
         data = rawdata[count:count + data_size]
-        xml_data.append({'id': id, 'type': typ, 'data': data,
-                         'start': count + 16})
+        xml_data[id] = {'enc': enc, 'data': data, 'start': count + 16}
         count += chunk_size - 12
 
-    for chunk in xml_data:
-        if chunk['type'] == 0 and chunk['id'] == 3:
-            xml_key = chunk['data']
+    chunk = xml_data[2]
+    if chunk['enc']:
+        xml_key = xml_data[3]['data']
 
-    hexmak = hashlib.md5('tivo:TiVo DVR:' + tivo_mak).hexdigest()
-    key = hashlib.sha1(hexmak + xml_key).digest()[:16] + '\0\0\0\0'
+        hexmak = hashlib.md5('tivo:TiVo DVR:' + tivo_mak).hexdigest()
+        key = hashlib.sha1(hexmak + xml_key).digest()[:16] + '\0\0\0\0'
 
-    turkey = hashlib.sha1(key[:17]).digest()
-    turiv = hashlib.sha1(key).digest()
+        turkey = hashlib.sha1(key[:17]).digest()
+        turiv = hashlib.sha1(key).digest()
 
-    xor_data = turing.Turing(turkey, turiv).gen(offset)
+        xor_data = turing.Turing(turkey, turiv).gen(offset)
 
-    details = ''
-    for chunk in xml_data:
-        if chunk['id'] == 2:
-            s = chunk['start']
-            details = ''.join(chr(ord(c) ^ ord(xor_data[s + count]))
-                              for count, c in enumerate(chunk['data']))
+        s = chunk['start']
+        details = ''.join(chr(ord(c) ^ ord(xor_data[s + count]))
+                          for count, c in enumerate(chunk['data']))
+    else:
+        details = chunk['data']
+
     return details
 
 def from_tivo(full_path):
@@ -705,6 +704,7 @@ def from_tivo(full_path):
         metadata = from_details(details)
         tivo_cache[full_path] = metadata
     except:
+        raise
         metadata = {}
 
     return metadata
