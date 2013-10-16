@@ -245,7 +245,7 @@ class ToGo(Plugin):
             details_url = 'https://%s/TiVoVideoDetails?id=%s' % (tivoIP, id)
             try:
                 handle = self.tivo_open(details_url)
-                meta.update(metadata.from_details(handle))
+                meta.update(metadata.from_details(handle.read()))
                 handle.close()
             except:
                 pass
