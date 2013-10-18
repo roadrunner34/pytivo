@@ -1,4 +1,4 @@
-# Turing PRNG for Python, v1.0
+# Turing PRNG for Python, v1.1
 # Copyright 2013 William McBrine
 # Copyright 2002 Qualcomm Inc. Written by Greg Rose
 # 
@@ -64,7 +64,7 @@
 """
 
 __author__ = 'William McBrine <wmcbrine@gmail.com>'
-__version__ = '1.0'
+__version__ = '1.1'
 
 import struct
 from itertools import izip
@@ -253,10 +253,10 @@ class Turing(object):
 
     def _strans(self, w, b):
         """ Push a word through the keyed S-boxes """
-        return (self.sbox[0][_getbyte(w, (0 + b) & 0x3)] ^
-                self.sbox[1][_getbyte(w, (1 + b) & 0x3)] ^
-                self.sbox[2][_getbyte(w, (2 + b) & 0x3)] ^
-                self.sbox[3][_getbyte(w, (3 + b) & 0x3)])
+        return (self.sbox[0][_getbyte(w, (0 + b) & 3)] ^
+                self.sbox[1][_getbyte(w, (1 + b) & 3)] ^
+                self.sbox[2][_getbyte(w, (2 + b) & 3)] ^
+                self.sbox[3][_getbyte(w, (3 + b) & 3)])
 
     def setkey(self, key):
         """ Key the cipher.
@@ -323,14 +323,14 @@ class Turing(object):
         self._step(z)
         z += 1
         things = _mixwords([self.lfsr[(z + n) % _LFSRLEN]
-                            for n in [16, 13, 6, 1, 0]])
+                            for n in (16, 13, 6, 1, 0)])
         things = _mixwords([self._strans(i, n)
-                            for i, n in izip(things, [0, 1, 2, 3, 0])])
+                            for i, n in izip(things, (0, 1, 2, 3, 0))])
         for i in xrange(3):
             self._step(z)
             z += 1
         things = [(i + self.lfsr[(z + n) % _LFSRLEN]) & 0xffffffff
-                  for i, n in izip(things, [14, 12, 8, 1, 0])]
+                  for i, n in izip(things, (14, 12, 8, 1, 0))]
         self._step(z)
         return struct.pack('>5L', *things)
 
@@ -339,7 +339,7 @@ class Turing(object):
             17 5-word blocks.
 
         """
-        rounds = [0, 5, 10, 15, 3, 8, 13, 1, 6, 11, 16, 4, 9, 14, 2, 7, 12]
+        rounds = (0, 5, 10, 15, 3, 8, 13, 1, 6, 11, 16, 4, 9, 14, 2, 7, 12)
         buf = ''
         while len(buf) < length:
             for r in rounds:
