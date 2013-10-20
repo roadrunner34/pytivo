@@ -1,4 +1,4 @@
-# Turing PRNG for Python, v1.1
+# Turing PRNG for Python, v1.2
 # Copyright 2013 William McBrine
 # Copyright 2002 Qualcomm Inc. Written by Greg Rose
 # 
@@ -64,7 +64,7 @@
 """
 
 __author__ = 'William McBrine <wmcbrine@gmail.com>'
-__version__ = '1.1'
+__version__ = '1.2'
 
 import struct
 from itertools import izip
@@ -246,6 +246,8 @@ class Turing(object):
         # precalculated S-boxes
         self.sbox = [[], [], [], []]
 
+        self.index = 0
+
         if key:
             self.setkey(key)
             if iv:
@@ -265,7 +267,7 @@ class Turing(object):
 
         """
         keylength = len(key)
-        if keylength & 0x03 or keylength > _MAXKEY:
+        if keylength & 3 or keylength > _MAXKEY:
             raise KeyLengthError
         fmt = '>%dL' % (keylength / 4)
         self.mkey = _mixwords([_fixed_strans(n)
@@ -293,7 +295,7 @@ class Turing(object):
         """
         ivlength, klength = len(iv), len(self.mkey)
         # check args
-        if ivlength & 0x03 or (ivlength + 4 * klength) > _MAXKIV:
+        if ivlength & 3 or (ivlength + 4 * klength) > _MAXKIV:
             raise IVLengthError
         # first copy in the IV, mixing as we go
         fmt = '>%dL' % (ivlength / 4)
@@ -310,38 +312,39 @@ class Turing(object):
         # finally mix all the words
         self.lfsr = _mixwords(self.lfsr)
 
-    def _step(self, z):
+    def _step(self, n=1):
         """ Step the LFSR """
-        z %= _LFSRLEN
-        self.lfsr[z] = (self.lfsr[(z + 15) % _LFSRLEN] ^
-                        self.lfsr[(z + 4) % _LFSRLEN] ^
-                       (self.lfsr[z] << 8) ^
-               _MULTAB[(self.lfsr[z] >> 24)]) & 0xffffffff
+        while n:
+            z = self.index % _LFSRLEN
+            self.lfsr[z] = (self.lfsr[(z + 15) % _LFSRLEN] ^
+                            self.lfsr[(z + 4) % _LFSRLEN] ^
+                           (self.lfsr[z] << 8) ^
+                   _MULTAB[(self.lfsr[z] >> 24)]) & 0xffffffff
+            self.index += 1
+            n -= 1
 
-    def _round(self, z):
+    def _round(self):
         """ A single round """
-        self._step(z)
-        z += 1
-        things = _mixwords([self.lfsr[(z + n) % _LFSRLEN]
+        self._step()
+        things = _mixwords([self.lfsr[(self.index + n) % _LFSRLEN]
                             for n in (16, 13, 6, 1, 0)])
         things = _mixwords([self._strans(i, n)
                             for i, n in izip(things, (0, 1, 2, 3, 0))])
-        for i in xrange(3):
-            self._step(z)
-            z += 1
-        things = [(i + self.lfsr[(z + n) % _LFSRLEN]) & 0xffffffff
+        self._step(3)
+        things = [(i + self.lfsr[(self.index + n) % _LFSRLEN]) & 0xffffffff
                   for i, n in izip(things, (14, 12, 8, 1, 0))]
-        self._step(z)
+        self._step()
         return struct.pack('>5L', *things)
 
-    def gen(self, length=1):
-        """ Generate at least length characters of output, in groups of
-            17 5-word blocks.
+    def gen(self, skip, length):
+        """ Generate length characters of output, skipping the first
+            skip characters.
 
         """
-        rounds = (0, 5, 10, 15, 3, 8, 13, 1, 6, 11, 16, 4, 9, 14, 2, 7, 12)
+        while skip > 20:
+            self._step(5)
+            skip -= 20
         buf = ''
-        while len(buf) < length:
-            for r in rounds:
-                buf += self._round(r)
-        return buf
+        while len(buf) < length + skip:
+            buf += self._round()
+        return buf[skip:length + skip]
