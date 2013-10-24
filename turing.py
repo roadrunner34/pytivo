@@ -1,4 +1,4 @@
-# Turing PRNG for Python, v1.3
+# Turing Encryption for Python, v1.4
 # Copyright 2013 William McBrine
 # Based on material Copyright 2002 Qualcomm Inc., written by Greg Rose
 #
@@ -57,7 +57,7 @@
 # algorithms should show the words "Encryption by QUALCOMM" either on
 # the product or in the associated documentation.
 
-""" Turing PRNG for Python
+""" Turing Encryption for Python
 
     A Python implementation of Qualcomm's Turing pseudo-random number
     generator. Loosely based on Greg Rose's TuringFast.c et al. This is
@@ -67,7 +67,7 @@
 """
 
 __author__ = 'William McBrine <wmcbrine@gmail.com>'
-__version__ = '1.3'
+__version__ = '1.4'
 
 import struct
 from itertools import izip
@@ -346,3 +346,15 @@ class Turing(object):
         while len(buf) < length + skip:
             buf += self._round()
         return buf[skip:length + skip]
+
+    def crypt(self, source, skip=0):
+        """ Return a transformed (encrypted or decrypted) version of the
+            source string, skipping the first skip bytes of the Turing
+            data.
+
+        """
+        xor_data = self.gen(skip, len(source))
+        fmt = '%dB' % len(source)
+        d2 = struct.unpack(fmt, source)
+        x2 = struct.unpack(fmt, xor_data)
+        return struct.pack(fmt, *(a ^ b for a, b in izip(d2, x2)))

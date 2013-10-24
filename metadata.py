@@ -7,7 +7,6 @@ import struct
 import subprocess
 import sys
 from datetime import datetime
-from itertools import izip
 from xml.dom import minidom
 from xml.parsers import expat
 try:
@@ -681,12 +680,7 @@ def _tdcat_py(full_path, tivo_mak):
         turkey = hashlib.sha1(key[:17]).digest()
         turiv = hashlib.sha1(key).digest()
 
-        xor_data = turing.Turing(turkey, turiv).gen(chunk['start'],
-                                                    len(details))
-        fmt = '%dB' % len(details)
-        d2 = struct.unpack(fmt, details)
-        x2 = struct.unpack(fmt, xor_data)
-        details = struct.pack(fmt, *(a ^ b for a, b in izip(d2, x2)))
+        details = turing.Turing(turkey, turiv).crypt(details, chunk['start'])
 
     return details
 
