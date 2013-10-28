@@ -244,7 +244,6 @@ class IVLengthError(Exception):
 class Turing(object):
     def __init__(self, key=None, iv=None):
         self.sbox = [[], [], [], []]  # precalculated S-boxes
-        self.index = 0
 
         if key:
             self.setkey(key)
@@ -313,23 +312,20 @@ class Turing(object):
     def _step(self, n=1):
         """ Step the LFSR """
         while n:
-            z = self.index % _LFSRLEN
-            self.lfsr[z] = (self.lfsr[(z + 15) % _LFSRLEN] ^
-                            self.lfsr[(z + 4) % _LFSRLEN] ^
-                          ((self.lfsr[z] & 0xffffff) << 8) ^
-                   _MULTAB[(self.lfsr[z] >> 24)])
-            self.index += 1
+            oldw = self.lfsr.pop(0)
+            neww = (self.lfsr[14] ^ self.lfsr[3] ^
+                    ((oldw & 0xffffff) << 8) ^ _MULTAB[oldw >> 24])
+            self.lfsr.append(neww)
             n -= 1
 
     def _round(self):
         """ A single round """
         self._step()
-        things = _mixwords([self.lfsr[(self.index + n) % _LFSRLEN]
-                            for n in (16, 13, 6, 1, 0)])
+        things = _mixwords([self.lfsr[n] for n in (16, 13, 6, 1, 0)])
         things = _mixwords([self._strans(i, n)
                             for i, n in izip(things, (0, 1, 2, 3, 0))])
         self._step(3)
-        things = [(i + self.lfsr[(self.index + n) % _LFSRLEN]) & 0xffffffff
+        things = [(i + self.lfsr[n]) & 0xffffffff
                   for i, n in izip(things, (14, 12, 8, 1, 0))]
         self._step()
         return struct.pack('>5L', *things)
