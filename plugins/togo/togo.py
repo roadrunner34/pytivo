@@ -82,7 +82,8 @@ class ToGo(Plugin):
                     time.sleep(5)
                     continue
 
-                # Throw the error otherwise
+                # Log and throw the error otherwise
+                logger.error(e)
                 raise
 
     def NPL(self, handler, query):
@@ -262,12 +263,10 @@ class ToGo(Plugin):
         except urllib2.HTTPError, e:
             status[url]['running'] = False
             status[url]['error'] = e.code
-            logger.error(e.code)
             return
         except urllib2.URLError, e:
             status[url]['running'] = False
             status[url]['error'] = e.reason
-            logger.error(e.reason)
             return
 
         tivo_name = config.tivo_names[config.tivos_by_ip(tivoIP)]
