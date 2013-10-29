@@ -4,7 +4,6 @@ import sys
 import time
 import urllib2
 import urllib
-import warnings
 import xml.etree.ElementTree as ElementTree
 
 import config

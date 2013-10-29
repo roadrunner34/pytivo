@@ -1,12 +1,10 @@
 import calendar
-import cgi
 import logging
 import os
 import re
 import struct
 import thread
 import time
-import traceback
 import urllib
 import zlib
 from UserDict import DictMixin
