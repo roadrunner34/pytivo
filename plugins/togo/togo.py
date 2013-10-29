@@ -45,7 +45,7 @@ from the queue.</p>"""
 UNABLE = """<h3>Unable to Connect to TiVo</h3> <p>pyTivo was unable to 
 connect to the TiVo at %s.</p> <p>This is most likely caused by an 
 incorrect Media Access Key. Please return to the Settings page and 
-double check your <b>tivo_mak</b> setting.</p>"""
+double check your <b>tivo_mak</b> setting.</p> <pre>%s</pre>"""
 
 # Preload the templates
 tnname = os.path.join(SCRIPTDIR, 'templates', 'npl.tmpl')
@@ -124,7 +124,7 @@ class ToGo(Plugin):
                 try:
                     page = self.tivo_open(theurl)
                 except IOError, e:
-                    handler.redir(UNABLE % tivoIP, 10)
+                    handler.redir(UNABLE % (tivoIP, e), 10)
                     return
                 tivo_cache[theurl] = {'thepage': minidom.parse(page),
                                       'thepage_time': time.time()}
@@ -260,13 +260,9 @@ class ToGo(Plugin):
                 handle = self.tivo_open(url + '&Format=video/x-tivo-mpeg-ts')
             else:
                 handle = self.tivo_open(url)
-        except urllib2.HTTPError, e:
+        except Exception, msg:
             status[url]['running'] = False
-            status[url]['error'] = e.code
-            return
-        except urllib2.URLError, e:
-            status[url]['running'] = False
-            status[url]['error'] = e.reason
+            status[url]['error'] = str(msg)
             return
 
         tivo_name = config.tivo_names[config.tivos_by_ip(tivoIP)]
