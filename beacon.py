@@ -154,7 +154,7 @@ class Beacon:
                         if result < 0:
                             break
                         packet = packet[result:]
-                except error, e:
+                except Exception, e:
                     print e
 
     def start(self):
