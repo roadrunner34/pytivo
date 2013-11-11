@@ -195,7 +195,7 @@ def getShares(tsn=''):
 def getDebug():
     try:
         return config.getboolean('Server', 'debug')
-    except NoOptionError, ValueError:
+    except:
         return False
 
 def getOptres(tsn=None):
@@ -265,7 +265,7 @@ def isHDtivo(tsn):  # tsn's of High Definition Tivo's
 def has_ts_flag():
     try:
         return config.getboolean('Server', 'ts')
-    except NoOptionError, ValueError:
+    except:
         return False
 
 def is_ts_capable(tsn):  # tsn's of Tivos that support transport streams
