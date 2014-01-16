@@ -699,7 +699,6 @@ def from_tivo(full_path):
         metadata = from_details(details)
         tivo_cache[full_path] = metadata
     except:
-        raise
         metadata = {}
 
     return metadata
