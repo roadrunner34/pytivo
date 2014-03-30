@@ -324,7 +324,7 @@ def select_videocodec(inFile, tsn, mime=''):
             vInfo.get('vCodec', '') == 'h264'):
             codec += ' -bsf h264_mp4toannexb'
     else:
-        codec = 'mpeg2video'  # default
+        codec = 'mpeg2video -pix_fmt yuv420p'  # default
     return '-vcodec ' + codec
 
 def select_videobr(inFile, tsn, mime=''):
