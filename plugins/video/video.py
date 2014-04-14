@@ -362,8 +362,6 @@ class BaseVideo(Plugin):
         if 'time' in data:
             if data['time'].lower() == 'file':
                 mtime = os.stat(unicode(full_path, 'utf-8')).st_mtime
-                if (mtime < 0):
-                    mtime = 0
                 try:
                     now = datetime.utcfromtimestamp(mtime)
                 except:

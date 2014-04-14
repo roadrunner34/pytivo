@@ -351,9 +351,10 @@ def basic(full_path):
     base_path, name = os.path.split(full_path)
     title, ext = os.path.splitext(name)
     mtime = os.stat(unicode(full_path, 'utf-8')).st_mtime
-    if (mtime < 0):
-        mtime = 0
-    originalAirDate = datetime.utcfromtimestamp(mtime)
+    try:
+        originalAirDate = datetime.utcfromtimestamp(mtime)
+    except:
+        originalAirDate = datetime.utcnow()
 
     metadata = {'title': title,
                 'originalAirDate': originalAirDate.isoformat()}
