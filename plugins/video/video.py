@@ -152,7 +152,7 @@ class Pushable(object):
 
         files = query.get('File', [])
         for f in files:
-            file_path = os.path.normpath(path + f)
+            file_path = os.path.normpath(path + '/' + f)
             queue.append({'path': file_path, 'name': f, 'tsn': tsn,
                           'url': baseurl})
             if len(queue) == 1:
@@ -525,7 +525,7 @@ class BaseVideo(Plugin):
         tsn = handler.headers.getheader('tsn', '')
         f = query['File'][0]
         path = self.get_local_path(handler, query)
-        file_path = os.path.normpath(path + f)
+        file_path = os.path.normpath(path + '/' + f)
 
         details = self.get_details_xml(tsn, file_path)
 
