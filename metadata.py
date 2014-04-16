@@ -347,10 +347,11 @@ def from_text(full_path):
 
     return metadata
 
-def basic(full_path):
+def basic(full_path, mtime=None):
     base_path, name = os.path.split(full_path)
     title, ext = os.path.splitext(name)
-    mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
+    if not mtime:
+        mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
     try:
         originalAirDate = datetime.utcfromtimestamp(mtime)
     except:

@@ -318,7 +318,7 @@ class BaseVideo(Plugin):
             return int((self.__duration(full_path) / 1000) *
                        (bitrate * 1.02 / 8))
 
-    def metadata_full(self, full_path, tsn='', mime=''):
+    def metadata_full(self, full_path, tsn='', mime='', mtime=None):
         data = {}
         vInfo = transcode.video_info(full_path)
 
@@ -328,7 +328,7 @@ class BaseVideo(Plugin):
              config.getTivoWidth >= 1280)):
             data['showingBits'] = '4096'
 
-        data.update(metadata.basic(full_path))
+        data.update(metadata.basic(full_path, mtime))
         if full_path[-5:].lower() == '.tivo':
             data.update(metadata.from_tivo(full_path))
         if full_path[-4:].lower() == '.wtv':
@@ -361,7 +361,8 @@ class BaseVideo(Plugin):
         now = datetime.utcnow()
         if 'time' in data:
             if data['time'].lower() == 'file':
-                mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
+                if not mtime:
+                    mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
                 try:
                     now = datetime.utcfromtimestamp(mtime)
                 except:
@@ -412,14 +413,14 @@ class BaseVideo(Plugin):
         local_base_path = self.get_local_base_path(handler, query)
         for f in files:
             video = VideoDetails()
-            mtime = int(f.mdate)
+            mtime = f.mdate
             try:
                 ltime = time.localtime(mtime)
             except:
                 logger.warning('Bad file time on ' + unicode(f.name, 'utf-8'))
-                mtime = int(time.time())
+                mtime = time.time()
                 ltime = time.localtime(mtime)
-            video['captureDate'] = hex(mtime)
+            video['captureDate'] = hex(int(mtime))
             video['textDate'] = time.strftime('%b %d, %Y', ltime)
             video['name'] = os.path.basename(f.name)
             video['path'] = f.name
@@ -435,12 +436,13 @@ class BaseVideo(Plugin):
                 if len(files) == 1 or f.name in transcode.info_cache:
                     video['valid'] = transcode.supported_format(f.name)
                     if video['valid']:
-                        video.update(self.metadata_full(f.name, tsn))
+                        video.update(self.metadata_full(f.name, tsn,
+                                     mtime=mtime))
                         if len(files) == 1:
                             video['captureDate'] = hex(isogm(video['time']))
                 else:
                     video['valid'] = True
-                    video.update(metadata.basic(f.name))
+                    video.update(metadata.basic(f.name, mtime))
 
                 if self.use_ts(tsn, f.name):
                     video['mime'] = 'video/x-tivo-mpeg-ts'
