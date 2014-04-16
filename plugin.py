@@ -147,7 +147,7 @@ class Plugin(object):
                 self.name = name
                 self.isdir = isdir
                 st = os.stat(unicode(name, 'utf-8'))
-                self.mdate = int(st.st_mtime)
+                self.mdate = st.st_mtime
                 self.size = st.st_size
 
         class SortList:
@@ -192,7 +192,7 @@ class Plugin(object):
             if path in rc and rc.mtime(path) + 300 >= time.time():
                 filelist = rc[path]
         else:
-            updated = os.stat(unicode(path, 'utf-8'))[8]
+            updated = os.path.getmtime(unicode(path, 'utf-8'))
             if path in dc and dc.mtime(path) >= updated:
                 filelist = dc[path]
             for p in rc:

@@ -744,7 +744,7 @@ def tivo_compatible(inFile, tsn='', mime=''):
 def video_info(inFile, cache=True):
     vInfo = dict()
     fname = unicode(inFile, 'utf-8')
-    mtime = os.stat(fname).st_mtime
+    mtime = os.path.getmtime(fname)
     if cache:
         if inFile in info_cache and info_cache[inFile][0] == mtime:
             debug('CACHE HIT! %s' % inFile)

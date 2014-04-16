@@ -205,7 +205,7 @@ class BaseVideo(Plugin):
             valid = True
 
         if valid and offset:
-            valid = ((compatible and offset < os.stat(path).st_size) or
+            valid = ((compatible and offset < os.path.getsize(path)) or
                      (not compatible and transcode.is_resumable(path, offset)))
 
         #faking = (mime in ['video/x-tivo-mpeg-ts', 'video/x-tivo-mpeg'] and
@@ -216,7 +216,7 @@ class BaseVideo(Plugin):
         if faking:
             thead = self.tivo_header(tsn, path, mime)
         if compatible:
-            size = os.stat(fname).st_size + len(thead)
+            size = os.path.getsize(fname) + len(thead)
             handler.send_response(200)
             handler.send_header('Content-Length', size - offset)
             handler.send_header('Content-Range', 'bytes %d-%d/%d' % 
@@ -308,7 +308,7 @@ class BaseVideo(Plugin):
         # Size is estimated by taking audio and video bit rate adding 2%
 
         if transcode.tivo_compatible(full_path, tsn, mime)[0]:
-            return int(os.stat(unicode(full_path, 'utf-8')).st_size)
+            return os.path.getsize(unicode(full_path, 'utf-8'))
         else:
             # Must be re-encoded
             audioBPS = config.getMaxAudioBR(tsn) * 1000
@@ -361,7 +361,7 @@ class BaseVideo(Plugin):
         now = datetime.utcnow()
         if 'time' in data:
             if data['time'].lower() == 'file':
-                mtime = os.stat(unicode(full_path, 'utf-8')).st_mtime
+                mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
                 try:
                     now = datetime.utcfromtimestamp(mtime)
                 except:
@@ -412,7 +412,7 @@ class BaseVideo(Plugin):
         local_base_path = self.get_local_base_path(handler, query)
         for f in files:
             video = VideoDetails()
-            mtime = f.mdate
+            mtime = int(f.mdate)
             try:
                 ltime = time.localtime(mtime)
             except:
