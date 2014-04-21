@@ -507,21 +507,29 @@ class BaseVideo(Plugin):
         return details
 
     def tivo_header(self, tsn, path, mime):
+        def pad(length, align):
+            extra = length % align
+            if extra:
+                extra = align - extra
+            return extra
+
         if mime == 'video/x-tivo-mpeg-ts':
             flag = 45
         else:
             flag = 13
         details = self.get_details_xml(tsn, path)
         ld = len(details)
-        chunklen = ld * 2 + 44
-        padding = 2048 - chunklen % 1024
+        chunk = details + '\0' * (pad(ld, 4) + 4)
+        lc = len(chunk)
+        blocklen = lc * 2 + 40
+        padding = pad(blocklen, 1024)
 
         return ''.join(['TiVo', struct.pack('>HHHLH', 4, flag, 0, 
-                                            padding + chunklen, 2),
-                        struct.pack('>LLHH', ld + 16, ld, 1, 0),
-                        details, '\0' * 4,
-                        struct.pack('>LLHH', ld + 19, ld, 2, 0),
-                        details, '\0' * padding])
+                                            padding + blocklen, 2),
+                        struct.pack('>LLHH', lc + 12, ld, 1, 0),
+                        chunk,
+                        struct.pack('>LLHH', lc + 12, ld, 2, 0),
+                        chunk, '\0' * padding])
 
     def TVBusQuery(self, handler, query):
         tsn = handler.headers.getheader('tsn', '')
