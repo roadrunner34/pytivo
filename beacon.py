@@ -74,8 +74,8 @@ class ZCBroadcast:
         # Get the names of servers offering TiVo videos
         browser = Zeroconf.ServiceBrowser(self.rz, VIDS, ZCListener(names))
 
-        # Give them half a second to respond
-        time.sleep(0.5)
+        # Give them a second to respond
+        time.sleep(1)
 
         # Now get the addresses -- this is the slow part
         for name in names:
