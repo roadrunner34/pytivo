@@ -170,9 +170,10 @@ class ToGo(Plugin):
                     rawsize = entry['SourceSize']
                     entry['SourceSize'] = metadata.human_size(rawsize)
 
-                    dur = getint(entry['Duration']) / 1000
-                    entry['Duration'] = ( '%d:%02d:%02d' %
-                        (dur / 3600, (dur % 3600) / 60, dur % 60) )
+                    if 'Duration' in entry:
+                        dur = getint(entry['Duration']) / 1000
+                        entry['Duration'] = ( '%d:%02d:%02d' %
+                            (dur / 3600, (dur % 3600) / 60, dur % 60) )
 
                     entry['CaptureDate'] = time.strftime('%b %d, %Y',
                         time.localtime(int(entry['CaptureDate'], 16)))

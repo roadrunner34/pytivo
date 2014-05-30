@@ -107,7 +107,9 @@ Pull from $escape($tname)
 			#end if
 		</td>
 		<td class="progsize">$row['SourceSize'] <br>
+                #if 'Duration' in $row
 		$row['Duration']
+                #end if
 		</td>
 		<td class="progdate">$row['CaptureDate']</td>
 	  #end if
