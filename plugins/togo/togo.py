@@ -176,16 +176,18 @@ class ToGo(Plugin):
                         if value:
                             entry[key] = value
 
-                    rawsize = entry['SourceSize']
-                    entry['SourceSize'] = metadata.human_size(rawsize)
+                    if 'SourceSize' in entry:
+                        rawsize = entry['SourceSize']
+                        entry['SourceSize'] = metadata.human_size(rawsize)
 
                     if 'Duration' in entry:
                         dur = getint(entry['Duration']) / 1000
                         entry['Duration'] = ( '%d:%02d:%02d' %
                             (dur / 3600, (dur % 3600) / 60, dur % 60) )
 
-                    entry['CaptureDate'] = time.strftime('%b %d, %Y',
-                        time.localtime(int(entry['CaptureDate'], 16)))
+                    if 'CaptureDate' in entry:
+                        entry['CaptureDate'] = time.strftime('%b %d, %Y',
+                            time.localtime(int(entry['CaptureDate'], 16)))
 
                     url = entry['Url']
                     if url in basic_meta:

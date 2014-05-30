@@ -106,12 +106,20 @@ Pull from $escape($tname)
 				#end if
 			#end if
 		</td>
-		<td class="progsize">$row['SourceSize'] <br>
+		<td class="progsize">
+                #if 'SourceSize' in $row
+                $row['SourceSize']
+                #end if
+                <br>
                 #if 'Duration' in $row
 		$row['Duration']
                 #end if
 		</td>
-		<td class="progdate">$row['CaptureDate']</td>
+		<td class="progdate">
+                #if 'CaptureDate' in $row
+                $row['CaptureDate']
+                #end if
+                </td>
 	  #end if
 	  </tr>
   #end for
