@@ -15,14 +15,10 @@ class Bdict(dict):
 
 def init(argv):
     global tivos
-    global tivo_names
-    global tivo_ports
     global guid
     global config_files
 
     tivos = {}
-    tivo_names = {}
-    tivo_ports = {}
     guid = uuid.uuid4()
 
     p = os.path.dirname(__file__)
@@ -77,7 +73,7 @@ def write():
 
 def tivos_by_ip(tivoIP):
     for key, value in tivos.items():
-        if value == tivoIP:
+        if value['address'] == tivoIP:
             return key
 
 def get_server(name, default=None):
@@ -90,7 +86,10 @@ def getGUID():
     return str(guid)
 
 def get_ip(tsn=None):
-    dest_ip = tivos.get(tsn, '4.2.2.1')
+    if tsn:
+        dest_ip = tivos[tsn]['address']
+    else:
+        dest_ip = '4.2.2.1'
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect((dest_ip, 123))
     return s.getsockname()[0]

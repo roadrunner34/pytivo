@@ -127,11 +127,11 @@ class Pushable(object):
 
     def Push(self, handler, query):
         tsn = query['tsn'][0]
-        for key in config.tivo_names:
-            if config.tivo_names[key] == tsn:
+        for key in config.tivos:
+            if config.tivos[key]['name'] == tsn:
                 tsn = key
                 break
-        tivo_name = config.tivo_names.get(tsn, tsn)
+        tivo_name = config.tivos[tsn].get('name', tsn)
 
         container = quote(query['Container'][0].split('/')[0])
         ip = config.get_ip(tsn)
@@ -182,7 +182,7 @@ class BaseVideo(Plugin):
     def send_file(self, handler, path, query):
         mime = 'video/x-tivo-mpeg'
         tsn = handler.headers.getheader('tsn', '')
-        tivo_name = config.tivo_names.get(tsn, tsn)
+        tivo_name = config.tivos[tsn].get('name', tsn)
 
         is_tivo_file = (path[-5:].lower() == '.tivo')
 
@@ -467,7 +467,6 @@ class BaseVideo(Plugin):
         t.crc = zlib.crc32
         t.guid = config.getGUID()
         t.tivos = config.tivos
-        t.tivo_names = config.tivo_names
         if use_html:
             handler.send_html(str(t))
         else:

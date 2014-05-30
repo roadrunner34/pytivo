@@ -83,10 +83,10 @@ class ZCBroadcast:
             if info and 'TSN' in info.properties:
                 tsn = info.properties['TSN']
                 address = socket.inet_ntoa(info.getAddress())
-                config.tivos[tsn] = address
+                port = info.getPort()
+                config.tivos[tsn] = {'name': name, 'address': address, 
+                                     'port': port}
                 self.logger.info(name)
-                config.tivo_names[tsn] = name
-                config.tivo_ports[tsn] = info.getPort()
 
         return names
 
