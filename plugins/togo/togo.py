@@ -28,6 +28,10 @@ CLASS_NAME = 'ToGo'
 BADCHAR = {'\\': '-', '/': '-', ':': ' -', ';': ',', '*': '.',
            '?': '.', '!': '.', '"': "'", '<': '(', '>': ')', '|': ' '}
 
+# Default top-level share path
+
+DEFPATH = '/TiVoConnect?Command=QueryContainer&Container=/NowPlaying'
+
 # Some error/status message templates
 
 MISSING = """<h3>Missing Data</h3> <p>You must set both "tivo_mak" and 
@@ -105,18 +109,18 @@ class ToGo(Plugin):
         if 'TiVo' in query:
             tivoIP = query['TiVo'][0]
             tsn = config.tivos_by_ip(tivoIP)
-            tivo_name = config.tivos[tsn].get('name', tivoIP)
+            attrs = config.tivos[tsn]
+            tivo_name = attrs.get('name', tivoIP)
             tivo_mak = config.get_tsn('tivo_mak', tsn)
-            if 'port' in config.tivos[tsn]:
-                ip_port = '%s:%d' % (tivoIP, config.tivos[tsn]['port'])
-            else:
-                ip_port = tivoIP
-            theurl = ('https://' + ip_port +
-                      '/TiVoConnect?Command=QueryContainer&ItemCount=' +
-                      str(shows_per_page) + '&Container=/NowPlaying')
+
+            protocol = attrs.get('protocol', 'https')
+            ip_port = '%s:%d' % (tivoIP, attrs.get('port', 443))
+            path = attrs.get('path', DEFPATH)
             if 'Folder' in query:
-                folder += query['Folder'][0]
-                theurl += '/' + folder
+                folder = query['Folder'][0]
+                path += '/' + folder
+            theurl = '%s://%s%s&ItemCount=%d' % (protocol, ip_port,
+                                                 path, shows_per_page)
             if 'AnchorItem' in query:
                 theurl += '&AnchorItem=' + quote(query['AnchorItem'][0])
             if 'AnchorOffset' in query:
