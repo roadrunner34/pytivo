@@ -34,7 +34,7 @@ Pull from $escape($tname)
 	  #set $i += 1
 	  #set $j = $i%2
 	  <tr class="row$(j)">
-	  #if $row['ContentType'] == 'x-tivo-container/folder'
+	  #if $row['ContentType'].startswith('x-tivo-container')
 	    ## This is a folder
 		<td></td>
 		<td><img src="/folder.png" alt=""></td>
