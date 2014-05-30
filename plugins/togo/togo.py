@@ -158,6 +158,7 @@ class ToGo(Plugin):
                 else:
                     keys = {'Icon': 'Links/CustomIcon/Url',
                             'Url': 'Links/Content/Url',
+                            'Details': 'Links/TiVoVideoDetails/Url',
                             'SourceSize': 'Details/SourceSize',
                             'Duration': 'Details/Duration',
                             'CaptureDate': 'Details/CaptureDate'}
@@ -222,9 +223,12 @@ class ToGo(Plugin):
         parse_url = urlparse.urlparse(url)
 
         name = unquote(parse_url[2])[10:].split('.')
-        id = unquote(parse_url[4]).split('id=')[1]
+        try:
+            id = unquote(parse_url[4]).split('id=')[1]
+            name.insert(-1, ' - ' + id)
+        except:
+            pass
         ts = status[url]['ts_format']
-        name.insert(-1, ' - ' + id)
         if status[url]['decode']:
             if ts:
                 name[-1] = 'ts'
