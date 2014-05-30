@@ -26,7 +26,7 @@ def last_date():
     for root, dirs, files in os.walk(path):
         for name in files:
             if name.endswith('.py'):
-                tm = os.stat(os.path.join(root, name)).st_mtime
+                tm = os.path.getmtime(os.path.join(root, name))
                 if tm > lasttime:
                     lasttime = tm
 

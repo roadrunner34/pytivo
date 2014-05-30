@@ -106,12 +106,12 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                                      self.headers.getheader('tsn', ''))
         if not self.authorize(tsn):
             return
-        if tsn:
-            ip = self.address_string()
-            config.tivos[tsn] = ip
+        #if tsn:
+        #    ip = self.address_string()
+        #    config.tivos[tsn] = ip
 
-            if not tsn in config.tivo_names or config.tivo_names[tsn] == tsn:
-                config.tivo_names[tsn] = self.server.beacon.get_name(ip)
+        #    if not tsn in config.tivo_names or config.tivo_names[tsn] == tsn:
+        #        config.tivo_names[tsn] = self.server.beacon.get_name(ip)
 
         if '?' in self.path:
             path, opts = self.path.split('?', 1)
@@ -354,8 +354,9 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                     if tsn:
                         t.togo += ('<a href="/TiVoConnect?' +
                             'Command=NPL&amp;Container=' + quote(section) +  
-                            '&amp;TiVo=' + config.tivos[tsn] + '">' + 
-                            escape(config.tivo_names[tsn]) + '</a><br>')
+                            '&amp;TiVo=' + config.tivos[tsn]['address'] +
+                            '">' + escape(config.tivos[tsn]['name']) +
+                            '</a><br>')
             elif plugin_type and t.shares:
                 plugin = GetPlugin(plugin_type)
                 if hasattr(plugin, 'Push'):

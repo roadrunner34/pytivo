@@ -417,8 +417,8 @@ class Photo(Plugin):
             item['name'] = os.path.basename(f.name)
             item['is_dir'] = f.isdir
             item['rotation'] = 0
-            item['cdate'] = '%#x' % f.cdate
-            item['mdate'] = '%#x' % f.mdate
+            item['cdate'] = '%#x' % int(f.cdate)
+            item['mdate'] = '%#x' % int(f.mdate)
 
             self.media_data_cache[f.name] = item
             return item
@@ -454,8 +454,8 @@ class Photo(Plugin):
                 self.name = name
                 self.isdir = isdir
                 st = os.stat(unicode(name, 'utf-8'))
-                self.cdate = int(st.st_ctime)
-                self.mdate = int(st.st_mtime)
+                self.cdate = st.st_ctime
+                self.mdate = st.st_mtime
 
         class SortList:
             def __init__(self, files):
@@ -520,7 +520,7 @@ class Photo(Plugin):
             if path in rc:
                 filelist = rc[path]
         else:
-            updated = os.stat(unicode(path, 'utf-8'))[8]
+            updated = os.path.getmtime(unicode(path, 'utf-8'))
             if path in dc and dc.mtime(path) >= updated:
                 filelist = dc[path]
             for p in rc:

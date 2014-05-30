@@ -71,14 +71,9 @@ Push from $escape($folders[0])
       <input type="hidden" name="Command" value="Push">
       <input type="hidden" name="Container" value="$escape($name)">
         <select name="tsn">
-        #for $tivo in $tivo_names
-            #if $tivo and $tivo in $tivos
-                <option>$escape($tivo_names[$tivo])</option>
-            #end if
-        #end for
-        #for $tivo in $tivo_names
-            #if $tivo and not $tivo in $tivos
-                <option>$escape($tivo_names[$tivo])</option>
+        #for $tivo in $tivos
+            #if 'name' in $tivos[$tivo]
+                <option>$escape($tivos[$tivo]['name'])</option>
             #end if
         #end for
         </select>

@@ -28,6 +28,10 @@ CLASS_NAME = 'ToGo'
 BADCHAR = {'\\': '-', '/': '-', ':': ' -', ';': ',', '*': '.',
            '?': '.', '!': '.', '"': "'", '<': '(', '>': ')', '|': ' '}
 
+# Default top-level share path
+
+DEFPATH = '/TiVoConnect?Command=QueryContainer&Container=/NowPlaying'
+
 # Some error/status message templates
 
 MISSING = """<h3>Missing Data</h3> <p>You must set both "tivo_mak" and 
@@ -60,11 +64,12 @@ def null_cookie(name, value):
     return cookielib.Cookie(0, name, value, None, False, '', False, 
         False, '', False, False, None, False, None, None, None)
 
-auth_handler = urllib2.HTTPDigestAuthHandler()
+auth_handler = urllib2.HTTPPasswordMgrWithDefaultRealm()
 cj = cookielib.CookieJar()
 cj.set_cookie(null_cookie('sid', 'ADEADDA7EDEBAC1E'))
 tivo_opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj), 
-                                   auth_handler)
+                                   urllib2.HTTPBasicAuthHandler(auth_handler),
+                                   urllib2.HTTPDigestAuthHandler(auth_handler))
 
 class ToGo(Plugin):
     CONTENT_TYPE = 'text/html'
@@ -104,14 +109,18 @@ class ToGo(Plugin):
         if 'TiVo' in query:
             tivoIP = query['TiVo'][0]
             tsn = config.tivos_by_ip(tivoIP)
-            tivo_name = config.tivo_names[tsn]
+            attrs = config.tivos[tsn]
+            tivo_name = attrs.get('name', tivoIP)
             tivo_mak = config.get_tsn('tivo_mak', tsn)
-            theurl = ('https://' + tivoIP +
-                      '/TiVoConnect?Command=QueryContainer&ItemCount=' +
-                      str(shows_per_page) + '&Container=/NowPlaying')
+
+            protocol = attrs.get('protocol', 'https')
+            ip_port = '%s:%d' % (tivoIP, attrs.get('port', 443))
+            path = attrs.get('path', DEFPATH)
             if 'Folder' in query:
-                folder += query['Folder'][0]
-                theurl += '/' + folder
+                folder = query['Folder'][0]
+                path += '/' + folder
+            theurl = '%s://%s%s&ItemCount=%d' % (protocol, ip_port,
+                                                 path, shows_per_page)
             if 'AnchorItem' in query:
                 theurl += '&AnchorItem=' + quote(query['AnchorItem'][0])
             if 'AnchorOffset' in query:
@@ -120,7 +129,7 @@ class ToGo(Plugin):
             if (theurl not in tivo_cache or
                 (time.time() - tivo_cache[theurl]['thepage_time']) >= 60):
                 # if page is not cached or old then retreive it
-                auth_handler.add_password('TiVo DVR', tivoIP, 'tivo', tivo_mak)
+                auth_handler.add_password('TiVo DVR', ip_port, 'tivo', tivo_mak)
                 try:
                     page = self.tivo_open(theurl)
                 except IOError, e:
@@ -158,6 +167,7 @@ class ToGo(Plugin):
                 else:
                     keys = {'Icon': 'Links/CustomIcon/Url',
                             'Url': 'Links/Content/Url',
+                            'Details': 'Links/TiVoVideoDetails/Url',
                             'SourceSize': 'Details/SourceSize',
                             'Duration': 'Details/Duration',
                             'CaptureDate': 'Details/CaptureDate'}
@@ -169,9 +179,10 @@ class ToGo(Plugin):
                     rawsize = entry['SourceSize']
                     entry['SourceSize'] = metadata.human_size(rawsize)
 
-                    dur = getint(entry['Duration']) / 1000
-                    entry['Duration'] = ( '%d:%02d:%02d' %
-                        (dur / 3600, (dur % 3600) / 60, dur % 60) )
+                    if 'Duration' in entry:
+                        dur = getint(entry['Duration']) / 1000
+                        entry['Duration'] = ( '%d:%02d:%02d' %
+                            (dur / 3600, (dur % 3600) / 60, dur % 60) )
 
                     entry['CaptureDate'] = time.strftime('%b %d, %Y',
                         time.localtime(int(entry['CaptureDate'], 16)))
@@ -222,9 +233,12 @@ class ToGo(Plugin):
         parse_url = urlparse.urlparse(url)
 
         name = unquote(parse_url[2])[10:].split('.')
-        id = unquote(parse_url[4]).split('id=')[1]
+        try:
+            id = unquote(parse_url[4]).split('id=')[1]
+            name.insert(-1, ' - ' + id)
+        except:
+            pass
         ts = status[url]['ts_format']
-        name.insert(-1, ' - ' + id)
         if status[url]['decode']:
             if ts:
                 name[-1] = 'ts'
@@ -265,7 +279,7 @@ class ToGo(Plugin):
             status[url]['error'] = str(msg)
             return
 
-        tivo_name = config.tivo_names[config.tivos_by_ip(tivoIP)]
+        tivo_name = config.tivos[config.tivos_by_ip(tivoIP)].get('name', tivoIP)
 
         logger.info('[%s] Start getting "%s" from %s' %
                     (time.strftime('%d/%b/%Y %H:%M:%S'), outfile, tivo_name))

@@ -324,7 +324,7 @@ def select_videocodec(inFile, tsn, mime=''):
             vInfo.get('vCodec', '') == 'h264'):
             codec += ' -bsf h264_mp4toannexb'
     else:
-        codec = 'mpeg2video'  # default
+        codec = 'mpeg2video -pix_fmt yuv420p'  # default
     return '-vcodec ' + codec
 
 def select_videobr(inFile, tsn, mime=''):
@@ -744,7 +744,7 @@ def tivo_compatible(inFile, tsn='', mime=''):
 def video_info(inFile, cache=True):
     vInfo = dict()
     fname = unicode(inFile, 'utf-8')
-    mtime = os.stat(fname).st_mtime
+    mtime = os.path.getmtime(fname)
     if cache:
         if inFile in info_cache and info_cache[inFile][0] == mtime:
             debug('CACHE HIT! %s' % inFile)

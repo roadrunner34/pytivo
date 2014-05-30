@@ -466,7 +466,7 @@ class Music(Plugin):
             if path in rc:
                 filelist = rc[path]
         else:
-            updated = os.stat(unicode(path, 'utf-8'))[8]
+            updated = os.path.getmtime(unicode(path, 'utf-8'))
             if path in dc and dc.mtime(path) >= updated:
                 filelist = dc[path]
             for p in rc:
