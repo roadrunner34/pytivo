@@ -105,7 +105,7 @@ class ToGo(Plugin):
         if 'TiVo' in query:
             tivoIP = query['TiVo'][0]
             tsn = config.tivos_by_ip(tivoIP)
-            tivo_name = config.tivo_names[tsn]
+            tivo_name = config.tivo_names.get(tsn, tivoIP)
             tivo_mak = config.get_tsn('tivo_mak', tsn)
             theurl = ('https://' + tivoIP +
                       '/TiVoConnect?Command=QueryContainer&ItemCount=' +
@@ -271,7 +271,7 @@ class ToGo(Plugin):
             status[url]['error'] = str(msg)
             return
 
-        tivo_name = config.tivo_names[config.tivos_by_ip(tivoIP)]
+        tivo_name = config.tivo_names.get(config.tivos_by_ip(tivoIP), tivoIP)
 
         logger.info('[%s] Start getting "%s" from %s' %
                     (time.strftime('%d/%b/%Y %H:%M:%S'), outfile, tivo_name))
