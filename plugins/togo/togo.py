@@ -156,7 +156,7 @@ class ToGo(Plugin):
                     value = tag_data(item, 'Details/' + tag)
                     if value:
                         entry[tag] = value
-                if entry['ContentType'] == 'x-tivo-container/folder':
+                if entry['ContentType'].startswith('x-tivo-container'):
                     entry['Title'] = tag_data(item, 'Details/Title')
                     entry['TotalItems'] = tag_data(item, 'Details/TotalItems')
                     lc = tag_data(item, 'Details/LastCaptureDate')
