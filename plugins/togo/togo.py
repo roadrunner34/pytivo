@@ -60,11 +60,12 @@ def null_cookie(name, value):
     return cookielib.Cookie(0, name, value, None, False, '', False, 
         False, '', False, False, None, False, None, None, None)
 
-auth_handler = urllib2.HTTPDigestAuthHandler()
+auth_handler = urllib2.HTTPPasswordMgrWithDefaultRealm()
 cj = cookielib.CookieJar()
 cj.set_cookie(null_cookie('sid', 'ADEADDA7EDEBAC1E'))
 tivo_opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj), 
-                                   auth_handler)
+                                   urllib2.HTTPBasicAuthHandler(auth_handler),
+                                   urllib2.HTTPDigestAuthHandler(auth_handler))
 
 class ToGo(Plugin):
     CONTENT_TYPE = 'text/html'
