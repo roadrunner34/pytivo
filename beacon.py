@@ -86,6 +86,7 @@ class ZCBroadcast:
                 config.tivos[tsn] = address
                 self.logger.info(name)
                 config.tivo_names[tsn] = name
+                config.tivo_ports[tsn] = info.getPort()
 
         return names
 

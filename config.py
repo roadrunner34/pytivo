@@ -16,11 +16,13 @@ class Bdict(dict):
 def init(argv):
     global tivos
     global tivo_names
+    global tivo_ports
     global guid
     global config_files
 
     tivos = {}
     tivo_names = {}
+    tivo_ports = {}
     guid = uuid.uuid4()
 
     p = os.path.dirname(__file__)

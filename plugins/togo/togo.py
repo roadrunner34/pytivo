@@ -107,7 +107,11 @@ class ToGo(Plugin):
             tsn = config.tivos_by_ip(tivoIP)
             tivo_name = config.tivo_names.get(tsn, tivoIP)
             tivo_mak = config.get_tsn('tivo_mak', tsn)
-            theurl = ('https://' + tivoIP +
+            if tsn in config.tivo_ports:
+                ip_port = '%s:%d' % (tivoIP, config.tivo_ports[tsn])
+            else:
+                ip_port = tivoIP
+            theurl = ('https://' + ip_port +
                       '/TiVoConnect?Command=QueryContainer&ItemCount=' +
                       str(shows_per_page) + '&Container=/NowPlaying')
             if 'Folder' in query:
@@ -121,7 +125,7 @@ class ToGo(Plugin):
             if (theurl not in tivo_cache or
                 (time.time() - tivo_cache[theurl]['thepage_time']) >= 60):
                 # if page is not cached or old then retreive it
-                auth_handler.add_password('TiVo DVR', tivoIP, 'tivo', tivo_mak)
+                auth_handler.add_password('TiVo DVR', ip_port, 'tivo', tivo_mak)
                 try:
                     page = self.tivo_open(theurl)
                 except IOError, e:
