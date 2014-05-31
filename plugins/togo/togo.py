@@ -116,11 +116,11 @@ class ToGo(Plugin):
             protocol = attrs.get('protocol', 'https')
             ip_port = '%s:%d' % (tivoIP, attrs.get('port', 443))
             path = attrs.get('path', DEFPATH)
+            theurl = '%s://%s%s' % (protocol, ip_port, path)
             if 'Folder' in query:
                 folder = query['Folder'][0]
-                path += '/' + folder
-            theurl = '%s://%s%s&ItemCount=%d' % (protocol, ip_port,
-                                                 path, shows_per_page)
+                theurl = urlparse.urljoin(theurl, folder)
+            theurl += '&ItemCount=%d' % shows_per_page
             if 'AnchorItem' in query:
                 theurl += '&AnchorItem=' + quote(query['AnchorItem'][0])
             if 'AnchorOffset' in query:
@@ -151,12 +151,12 @@ class ToGo(Plugin):
             data = []
             for item in items:
                 entry = {}
-                entry['ContentType'] = tag_data(item, 'Details/ContentType')
-                for tag in ('CopyProtected', 'UniqueId'):
+                for tag in ('CopyProtected', 'ContentType'):
                     value = tag_data(item, 'Details/' + tag)
                     if value:
                         entry[tag] = value
                 if entry['ContentType'].startswith('x-tivo-container'):
+                    entry['Url'] = tag_data(item, 'Links/Content/Url')
                     entry['Title'] = tag_data(item, 'Details/Title')
                     entry['TotalItems'] = tag_data(item, 'Details/TotalItems')
                     lc = tag_data(item, 'Details/LastCaptureDate')
