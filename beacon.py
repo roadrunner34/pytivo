@@ -77,6 +77,10 @@ class ZCBroadcast:
         # Give them a second to respond
         time.sleep(1)
 
+        # Any results?
+        if names:
+            config.tivos_found = True
+
         # Now get the addresses -- this is the slow part
         for name in names:
             info = self.rz.getServiceInfo(VIDS, name + '.' + VIDS)

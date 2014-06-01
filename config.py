@@ -17,9 +17,11 @@ def init(argv):
     global tivos
     global guid
     global config_files
+    global tivos_found
 
     tivos = {}
     guid = uuid.uuid4()
+    tivos_found = False
 
     p = os.path.dirname(__file__)
     config_files = ['/etc/pyTivo.conf', os.path.join(p, 'pyTivo.conf')]
@@ -41,6 +43,7 @@ def reset():
     global bin_paths
     global config
     global configs_found
+    global tivos_found
 
     bin_paths = {}
 
@@ -55,12 +58,8 @@ def reset():
         if section.startswith('_tivo_'):
             tsn = section[6:]
             if tsn.upper() not in ['SD', 'HD']:
-                if config.has_option(section, 'name'):
-                    tivo_names[tsn] = config.get(section, 'name')
-                else:
-                    tivo_names[tsn] = tsn
-                if config.has_option(section, 'address'):
-                    tivos[tsn] = config.get(section, 'address')
+                tivos_found = True
+                tivos[tsn] = Bdict(config.items(section))
 
     for section in ['Server', '_tivo_SD', '_tivo_HD']:
         if not config.has_section(section):
