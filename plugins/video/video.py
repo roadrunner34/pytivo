@@ -182,7 +182,10 @@ class BaseVideo(Plugin):
     def send_file(self, handler, path, query):
         mime = 'video/x-tivo-mpeg'
         tsn = handler.headers.getheader('tsn', '')
-        tivo_name = config.tivos[tsn].get('name', tsn)
+        if tsn:
+            tivo_name = config.tivos[tsn].get('name', tsn)
+        else:
+            tivo_name = handler.address_string()
 
         is_tivo_file = (path[-5:].lower() == '.tivo')
 
