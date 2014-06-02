@@ -59,6 +59,7 @@ status = {} # Global variable to control download threads
 tivo_cache = {} # Cache of TiVo NPL
 queue = {} # Recordings to download -- list per TiVo
 basic_meta = {} # Data from NPL, parsed, indexed by progam URL
+details_urls = {} # URLs for extended data, indexed by main URL
 
 def null_cookie(name, value):
     return cookielib.Cookie(0, name, value, None, False, '', False, 
@@ -101,6 +102,7 @@ class ToGo(Plugin):
             return result
 
         global basic_meta
+        global details_urls
         shows_per_page = 50 # Change this to alter the number of shows returned
         folder = ''
         FirstAnchor = ''
@@ -196,6 +198,7 @@ class ToGo(Plugin):
                         basic_data = metadata.from_container(item)
                         entry.update(basic_data)
                         basic_meta[url] = basic_data
+                        details_urls[url] = entry['Details']
 
                 data.append(entry)
         else:
@@ -259,9 +262,8 @@ class ToGo(Plugin):
 
         if status[url]['save']:
             meta = basic_meta[url]
-            details_url = 'https://%s/TiVoVideoDetails?id=%s' % (tivoIP, id)
             try:
-                handle = self.tivo_open(details_url)
+                handle = self.tivo_open(details_urls[url])
                 meta.update(metadata.from_details(handle.read()))
                 handle.close()
             except:
