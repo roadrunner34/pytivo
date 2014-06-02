@@ -126,7 +126,13 @@ class Pushable(object):
         return m.group(0)
 
     def Push(self, handler, query):
-        tsn = query['tsn'][0]
+        try:
+            tsn = query['tsn'][0]
+        except:
+            logger.error('Push requires a TiVo Service Number')
+            handler.send_error(404)
+            return
+
         for key in config.tivos:
             if config.tivos[key]['name'] == tsn:
                 tsn = key
