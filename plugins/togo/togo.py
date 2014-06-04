@@ -198,7 +198,8 @@ class ToGo(Plugin):
                         basic_data = metadata.from_container(item)
                         entry.update(basic_data)
                         basic_meta[url] = basic_data
-                        details_urls[url] = entry['Details']
+                        if 'Details' in entry:
+                            details_urls[url] = entry['Details']
 
                 data.append(entry)
         else:
