@@ -2,6 +2,7 @@ import cookielib
 import logging
 import os
 import subprocess
+import sys
 import thread
 import time
 import urllib2
@@ -53,6 +54,8 @@ double check your <b>tivo_mak</b> setting.</p> <pre>%s</pre>"""
 # Preload the templates
 tnname = os.path.join(SCRIPTDIR, 'templates', 'npl.tmpl')
 NPL_TEMPLATE = file(tnname, 'rb').read()
+
+mswindows = (sys.platform == "win32")
 
 status = {} # Global variable to control download threads
 tivo_cache = {} # Cache of TiVo NPL
@@ -117,7 +120,8 @@ class ToGo(Plugin):
             protocol = attrs.get('protocol', 'https')
             ip_port = '%s:%d' % (tivoIP, attrs.get('port', 443))
             path = attrs.get('path', DEFPATH)
-            theurl = '%s://%s%s' % (protocol, ip_port, path)
+            baseurl = '%s://%s%s' % (protocol, ip_port, path)
+            theurl = baseurl
             if 'Folder' in query:
                 folder = query['Folder'][0]
                 theurl = urlparse.urljoin(theurl, folder)
@@ -190,7 +194,8 @@ class ToGo(Plugin):
                         entry['CaptureDate'] = time.strftime('%b %d, %Y',
                             time.localtime(int(entry['CaptureDate'], 16)))
 
-                    url = entry['Url']
+                    url = urlparse.urljoin(baseurl, entry['Url'])
+                    entry['Url'] = url
                     if url in basic_meta:
                         entry.update(basic_meta[url])
                     else:
@@ -236,7 +241,7 @@ class ToGo(Plugin):
 
         parse_url = urlparse.urlparse(url)
 
-        name = unquote(parse_url[2])[10:].split('.')
+        name = unicode(unquote(parse_url[2]), 'utf-8').split('/')[-1].split('.')
         try:
             id = unquote(parse_url[4]).split('id=')[1]
             name.insert(-1, ' - ' + id)
@@ -288,8 +293,11 @@ class ToGo(Plugin):
                     (time.strftime('%d/%b/%Y %H:%M:%S'), outfile, tivo_name))
 
         if status[url]['decode']:
+            fname = outfile
+            if mswindows:
+                fname = fname.encode('iso8859-1')
             tivodecode_path = config.get_bin('tivodecode')
-            tcmd = [tivodecode_path, '-m', mak, '-o', outfile, '-']
+            tcmd = [tivodecode_path, '-m', mak, '-o', fname, '-']
             tivodecode = subprocess.Popen(tcmd, stdin=subprocess.PIPE,
                                           bufsize=(512 * 1024))
             f = tivodecode.stdin
