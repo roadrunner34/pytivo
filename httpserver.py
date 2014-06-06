@@ -107,10 +107,13 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if not self.authorize(tsn):
             return
 
-        if tsn and not config.tivos_found and not tsn in config.tivos:
-            ip = self.address_string()
-            name = self.server.beacon.get_name(ip)
-            config.tivos[tsn] = {'address': ip, 'name': name}
+        if tsn and (not config.tivos_found or tsn in config.tivos):
+            attr = config.tivos.get(tsn, {})
+            if 'address' not in attr:
+                attr['address'] = self.address_string()
+            if 'name' not in attr:
+                attr['name'] = self.server.beacon.get_name(attr['address'])
+            config.tivos[tsn] = attr
 
         if '?' in self.path:
             path, opts = self.path.split('?', 1)
