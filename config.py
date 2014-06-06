@@ -85,9 +85,10 @@ def getGUID():
     return str(guid)
 
 def get_ip(tsn=None):
-    if tsn:
+    try:
+        assert(tsn)
         dest_ip = tivos[tsn]['address']
-    else:
+    except:
         dest_ip = '4.2.2.1'
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect((dest_ip, 123))
