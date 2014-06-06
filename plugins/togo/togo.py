@@ -378,7 +378,8 @@ class ToGo(Plugin):
                 logger.info('[%s] Queued "%s" for transfer to %s' %
                             (time.strftime('%d/%b/%Y %H:%M:%S'),
                              unquote(theurl), togo_path))
-            urlstring = '<br>'.join([unquote(x) for x in urls])
+            urlstring = '<br>'.join([unicode(unquote(x), 'utf-8')
+                                     for x in urls])
             message = TRANS_QUEUE % (urlstring, togo_path)
         else:
             message = MISSING
