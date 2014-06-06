@@ -354,7 +354,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                         t.togo += ('<a href="/TiVoConnect?' +
                             'Command=NPL&amp;Container=' + quote(section) +  
                             '&amp;TiVo=' + config.tivos[tsn]['address'] +
-                            '">' + escape(config.tivos[tsn]['name']) +
+                            '">' + config.tivos[tsn]['name'] +
                             '</a><br>')
             elif plugin_type and t.shares:
                 plugin = GetPlugin(plugin_type)
@@ -367,8 +367,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.send_html(str(t))
 
     def unsupported(self, query):
-        message = UNSUP % '\n'.join(['<li>%s: %s</li>' % (escape(key),
-                                                          escape(repr(value)))
+        message = UNSUP % '\n'.join(['<li>%s: %s</li>' % (key, repr(value))
                                      for key, value in query.items()])
         text = BASE_HTML % message
         self.send_html(text, code=404)
@@ -376,7 +375,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def redir(self, message, seconds=2):
         url = self.headers.getheader('Referer')
         if url:
-            message += RELOAD % (escape(url), seconds)
+            message += RELOAD % (url, seconds)
             refresh = '%d; url=%s' % (seconds, url)
         else:
             refresh = ''

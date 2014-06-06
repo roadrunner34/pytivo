@@ -13,7 +13,7 @@
 #if len($folders) > 1
 <a href="/TiVoConnect?Command=QueryContainer&amp;Container=$quote($folders[0])&amp;Format=text/html">
 #end if
-Push from $escape($folders[0])
+Push from $folders[0]
 #if len($folders) > 1
 </a>
   #if len($folders) > 2
@@ -22,7 +22,7 @@ Push from $escape($folders[0])
 / <a href="/TiVoConnect?Command=QueryContainer&amp;Container=$quote($ppath)&amp;Format=text/html">$n</a>
     #end for
   #end if
-/ $escape($folders[-1])
+/ $folders[-1]
 #end if
 </span></p>
 <table id="main">
@@ -43,18 +43,18 @@ Push from $escape($folders[0])
 	  #else
 	    ## This is a show
 		<td>
-            <input type="checkbox" name="File" value="$escape($video.part_path)">
+            <input type="checkbox" name="File" value="$video.part_path">
 		</td>
         <td></td>
 		<td class="progmain">
 			#if $video.episodeTitle
-			<span class="progtitle">$escape($video.title): $escape($video.episodeTitle)</span>
+			<span class="progtitle">$video.title: $video.episodeTitle</span>
 			#else
-			<span class="progtitle">$escape($video.title)</span>
+			<span class="progtitle">$video.title</span>
 			#end if
 			<span class="progdesc">
             #if $video.description
-			$escape($video.description)
+			$video.description
 			#end if
 			#if $video.displayMajorNumber and $video.callsign
 			$video.displayMajorNumber $video.callsign
@@ -69,11 +69,11 @@ Push from $escape($folders[0])
 </table>
 <p>
       <input type="hidden" name="Command" value="Push">
-      <input type="hidden" name="Container" value="$escape($name)">
+      <input type="hidden" name="Container" value="$name">
         <select name="tsn">
         #for $tivo in $tivos
             #if 'name' in $tivos[$tivo]
-                <option>$escape($tivos[$tivo]['name'])</option>
+                <option>$tivos[$tivo]['name']</option>
             #end if
         #end for
         </select>

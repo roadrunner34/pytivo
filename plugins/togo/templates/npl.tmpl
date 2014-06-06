@@ -12,9 +12,9 @@
   #if $folder != ''
 <a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP">
   #end if
-Pull from $escape($tname)
+Pull from $tname
   #if $folder != ''
-</a> / $escape($title)
+</a> / $title
   #end if
 </span></p>
 <table id="main">
@@ -45,7 +45,7 @@ Pull from $escape($tname)
 	    ## This is a show
 		<td>
 		#if 'Url' in $row and not ($row['Url'] in $status and ($status[$row['Url']]['running'] or $status[$row['Url']]['queued'])) and not ('CopyProtected' in $row and $row['CopyProtected'] == 'Yes') and not ('Icon' in $row and $row['Icon'] == 'urn:tivo:image:in-progress-recording')
-			<input type="checkbox" name="Url" value="$escape($row['Url'])">
+			<input type="checkbox" name="Url" value="$row['Url']">
 		#end if
 		</td>
 		<td>
@@ -66,12 +66,12 @@ Pull from $escape($tname)
 		</td>
 		<td class="progmain">
 			#if 'episodeTitle' in $row
-			<span class="progtitle">$escape($row['title']): $escape($row['episodeTitle'])</span>
+			<span class="progtitle">$row['title']: $row['episodeTitle']</span>
 			#else
-			<span class="progtitle">$escape($row['title'])</span>
+			<span class="progtitle">$row['title']</span>
 			#end if
 			<span class="progdesc">#if 'description' in $row
-			$escape($row['description'])
+			$row['description']
 			#end if
 			#if 'displayMajorNumber' in $row and 'callsign' in $row
 			$row['displayMajorNumber'] $row['callsign']

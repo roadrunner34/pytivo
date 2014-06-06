@@ -8,7 +8,6 @@ import urllib2
 import urlparse
 from urllib import quote, unquote
 from xml.dom import minidom
-from xml.sax.saxutils import escape
 
 from Cheetah.Template import Template
 
@@ -211,7 +210,6 @@ class ToGo(Plugin):
             title = ''
 
         t = Template(NPL_TEMPLATE, filter=EncodeUnicode)
-        t.escape = escape
         t.quote = quote
         t.folder = folder
         t.status = status
