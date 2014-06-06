@@ -133,10 +133,11 @@ class Pushable(object):
             handler.send_error(404)
             return
 
-        for key in config.tivos:
-            if config.tivos[key]['name'] == tsn:
-                tsn = key
-                break
+        if not tsn in config.tivos:
+            for key, value in config.tivos.items():
+                if value.get('name') == tsn:
+                    tsn = key
+                    break
         tivo_name = config.tivos[tsn].get('name', tsn)
 
         container = quote(query['Container'][0].split('/')[0])

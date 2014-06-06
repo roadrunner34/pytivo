@@ -76,6 +76,11 @@ Push from $folders[0]
                 <option>$tivos[$tivo]['name']</option>
             #end if
         #end for
+        #for $tivo in $tivos
+            #if not 'name' in $tivos[$tivo]
+                <option>$tivo</option>
+            #end if
+        #end for
         </select>
       <input value="Send to TiVo" type="submit">
 </p>

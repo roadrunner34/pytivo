@@ -350,7 +350,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                             '">Settings</a><br>')
             elif plugin_type == 'togo' and t.togo:
                 for tsn in config.tivos:
-                    if tsn:
+                    if tsn and 'address' in config.tivos[tsn]:
                         t.togo += ('<a href="/TiVoConnect?' +
                             'Command=NPL&amp;Container=' + quote(section) +  
                             '&amp;TiVo=' + config.tivos[tsn]['address'] +
