@@ -138,7 +138,10 @@ class Pushable(object):
                 if value.get('name') == tsn:
                     tsn = key
                     break
-        tivo_name = config.tivos[tsn].get('name', tsn)
+        try:
+            tivo_name = config.tivos[tsn]['name']
+        except:
+            tivo_name = tsn
 
         container = quote(query['Container'][0].split('/')[0])
         ip = config.get_ip(tsn)
@@ -189,9 +192,10 @@ class BaseVideo(Plugin):
     def send_file(self, handler, path, query):
         mime = 'video/x-tivo-mpeg'
         tsn = handler.headers.getheader('tsn', '')
-        if tsn:
+        try:
+            assert(tsn)
             tivo_name = config.tivos[tsn].get('name', tsn)
-        else:
+        except:
             tivo_name = handler.address_string()
 
         is_tivo_file = (path[-5:].lower() == '.tivo')
