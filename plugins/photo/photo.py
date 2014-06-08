@@ -263,7 +263,7 @@ class Photo(Plugin):
 
         fname = unicode(path, 'utf-8')
         if sys.platform == 'win32':
-            fname = fname.encode('iso8859-1')
+            fname = fname.encode('cp1252')
 
         if attrs and 'size' in attrs:
             result = attrs['size']

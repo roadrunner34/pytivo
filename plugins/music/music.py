@@ -112,7 +112,7 @@ class Music(Plugin):
 
         if needs_transcode:
             if mswindows:
-                fname = fname.encode('iso8859-1')
+                fname = fname.encode('cp1252')
 
             cmd = [config.get_bin('ffmpeg'), '-i', fname, '-vn']
             if ext in ['.mp3', '.mp2']:
@@ -248,7 +248,7 @@ class Music(Plugin):
             ffmpeg_path = config.get_bin('ffmpeg')
             if 'Duration' not in item and ffmpeg_path:
                 if mswindows:
-                    fname = fname.encode('iso8859-1')
+                    fname = fname.encode('cp1252')
                 cmd = [ffmpeg_path, '-i', fname]
                 ffmpeg = subprocess.Popen(cmd, stderr=subprocess.PIPE,
                                                stdout=subprocess.PIPE, 
@@ -327,7 +327,7 @@ class Music(Plugin):
             local_path = os.path.sep.join(list_name.split(os.path.sep)[:-1])
 
         if ext in ('.m3u', '.pls'):
-            charset = 'iso-8859-1'
+            charset = 'cp1252'
         else:
             charset = 'utf-8'
 

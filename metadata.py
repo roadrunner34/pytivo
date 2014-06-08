@@ -648,7 +648,7 @@ def from_nfo(full_path):
 def _tdcat_bin(tdcat_path, full_path, tivo_mak):
     fname = unicode(full_path, 'utf-8')
     if mswindows:
-        fname = fname.encode('iso8859-1')
+        fname = fname.encode('cp1252')
     tcmd = [tdcat_path, '-m', tivo_mak, '-2', fname]
     tdcat = subprocess.Popen(tcmd, stdout=subprocess.PIPE)
     return tdcat.stdout.read()
@@ -713,7 +713,7 @@ def force_utf8(text):
             if sys.platform == 'darwin':
                 text = text.decode('macroman')
             else:
-                text = text.decode('iso8859-1')
+                text = text.decode('cp1252')
     return text.encode('utf-8')
 
 def dump(output, metadata):

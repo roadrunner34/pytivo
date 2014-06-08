@@ -254,7 +254,7 @@ def dictcode(d):
                     if sys.platform == 'darwin':
                         v = v.decode('macroman')
                     else:
-                        v = v.decode('iso8859-1')
+                        v = v.decode('cp1252')
             elif type(v) != unicode:
                 v = str(v)
             v = v.encode('utf-8')

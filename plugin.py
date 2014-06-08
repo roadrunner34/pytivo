@@ -44,7 +44,7 @@ class EncodeUnicode(Filter):
                 if sys.platform == 'darwin':
                     val = val.decode('macroman')
                 else:
-                    val = val.decode('iso8859-1')
+                    val = val.decode('cp1252')
         elif type(val) != unicode:
             val = str(val)
         return val.encode(encoding)

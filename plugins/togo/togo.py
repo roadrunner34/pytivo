@@ -295,7 +295,7 @@ class ToGo(Plugin):
         if status[url]['decode']:
             fname = outfile
             if mswindows:
-                fname = fname.encode('iso8859-1')
+                fname = fname.encode('cp1252')
             tivodecode_path = config.get_bin('tivodecode')
             tcmd = [tivodecode_path, '-m', mak, '-o', fname, '-']
             tivodecode = subprocess.Popen(tcmd, stdin=subprocess.PIPE,

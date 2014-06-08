@@ -50,7 +50,7 @@ def debug(msg):
             if sys.platform == 'darwin':
                 msg = msg.decode('macroman')
             else:
-                msg = msg.decode('iso8859-1')
+                msg = msg.decode('cp1252')
     logger.debug(msg)
 
 def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
@@ -75,7 +75,7 @@ def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
     cmd_string = config.getFFmpegTemplate(tsn) % settings
     fname = unicode(inFile, 'utf-8')
     if mswindows:
-        fname = fname.encode('iso8859-1')
+        fname = fname.encode('cp1252')
 
     if inFile[-5:].lower() == '.tivo':
         tivodecode_path = config.get_bin('tivodecode')
@@ -679,8 +679,8 @@ def mp4_remux(inFile, basename, tsn=''):
     fname = unicode(inFile, 'utf-8')
     oname = unicode(outFile, 'utf-8')
     if mswindows:
-        fname = fname.encode('iso8859-1')
-        oname = oname.encode('iso8859-1')
+        fname = fname.encode('cp1252')
+        oname = oname.encode('cp1252')
 
     settings = {'video_codec': '-vcodec copy',
             'video_br': select_videobr(inFile, tsn),
@@ -764,7 +764,7 @@ def video_info(inFile, cache=True):
         return vInfo
 
     if mswindows:
-        fname = fname.encode('iso8859-1')
+        fname = fname.encode('cp1252')
     cmd = [ffmpeg_path, '-i', fname]
     # Windows and other OS buffer 4096 and ffmpeg can output more than that.
     err_tmp = tempfile.TemporaryFile()
@@ -954,7 +954,7 @@ def video_info(inFile, cache=True):
                             if sys.platform == 'darwin':
                                 value = value.decode('macroman')
                             else:
-                                value = value.decode('iso8859-1')
+                                value = value.decode('cp1252')
                         rawmeta[key] = [value]
                     except:
                         pass
@@ -986,7 +986,7 @@ def audio_check(inFile, tsn):
                   select_audiolang(inFile, tsn) + ' -t 00:00:01 -f vob -')
     fname = unicode(inFile, 'utf-8')
     if mswindows:
-        fname = fname.encode('iso8859-1')
+        fname = fname.encode('cp1252')
     cmd = [config.get_bin('ffmpeg'), '-i', fname] + cmd_string.split()
     ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     fd, testname = tempfile.mkstemp()
