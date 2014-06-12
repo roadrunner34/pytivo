@@ -74,6 +74,10 @@ tivo_opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj),
                                    urllib2.HTTPBasicAuthHandler(auth_handler),
                                    urllib2.HTTPDigestAuthHandler(auth_handler))
 
+tsn = config.get_server('togo_tsn')
+if tsn:
+    tivo_opener.addheaders.append(('TSN', tsn))
+
 class ToGo(Plugin):
     CONTENT_TYPE = 'text/html'
 
