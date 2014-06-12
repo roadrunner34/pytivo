@@ -3,6 +3,7 @@ import re
 import socket
 import struct
 import time
+import uuid
 from threading import Timer
 from urllib import quote
 
@@ -50,7 +51,8 @@ class ZCBroadcast:
                 logger.info('Registering: %s' % section)
                 self.share_names.append(section)
                 desc = {'path': SHARE_TEMPLATE % quote(section),
-                        'platform': platform, 'protocol': 'http'}
+                        'platform': platform, 'protocol': 'http',
+                        'tsn': '{%s}' % uuid.uuid4()}
                 tt = ct.split('/')[1]
                 title = section
                 count = 1
