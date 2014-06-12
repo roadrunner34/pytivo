@@ -14,7 +14,16 @@
   #end if
 Pull from $tname
   #if $folder != ''
-</a> / $title
+</a> /
+    #if '/' in $title
+      #set $folders = $title.split('/')[1:]
+      #for $f in $folders[:-1]
+        $f /
+      #end for
+      $folders[-1]
+    #else
+      $title
+    #end if
   #end if
 </span></p>
 <table id="main">
