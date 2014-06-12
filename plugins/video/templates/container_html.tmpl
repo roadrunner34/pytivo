@@ -72,12 +72,12 @@ Push from $folders[0]
       <input type="hidden" name="Container" value="$name">
         <select name="tsn">
         #for $tivo in $tivos
-            #if 'name' in $tivos[$tivo]
+            #if 'name' in $tivos[$tivo] and not $tivo.startswith('{')
                 <option>$tivos[$tivo]['name']</option>
             #end if
         #end for
         #for $tivo in $tivos
-            #if not 'name' in $tivos[$tivo]
+            #if not 'name' in $tivos[$tivo] and not $tivo.startswith('{')
                 <option>$tivo</option>
             #end if
         #end for
