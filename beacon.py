@@ -7,7 +7,7 @@ import uuid
 from threading import Timer
 from urllib import quote
 
-import Zeroconf
+import zeroconf
 
 import config
 from plugin import GetPlugin
@@ -32,7 +32,7 @@ class ZCBroadcast:
         self.share_names = []
         self.share_info = []
         self.logger = logger
-        self.rz = Zeroconf.Zeroconf()
+        self.rz = zeroconf.Zeroconf()
         self.renamed = {}
         old_titles = self.scan()
         address = socket.inet_aton(config.get_ip())
@@ -60,7 +60,7 @@ class ZCBroadcast:
                     count += 1
                     title = '%s [%d]' % (section, count)
                     self.renamed[section] = title
-                info = Zeroconf.ServiceInfo('_%s._tcp.local.' % tt,
+                info = zeroconf.ServiceInfo('_%s._tcp.local.' % tt,
                     '%s._%s._tcp.local.' % (title, tt),
                     address, port, 0, 0, desc)
                 self.rz.registerService(info)
@@ -74,7 +74,7 @@ class ZCBroadcast:
         self.logger.info('Scanning for TiVos...')
 
         # Get the names of servers offering TiVo videos
-        browser = Zeroconf.ServiceBrowser(self.rz, VIDS, ZCListener(names))
+        browser = zeroconf.ServiceBrowser(self.rz, VIDS, ZCListener(names))
 
         # Give them a second to respond
         time.sleep(1)
