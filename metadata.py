@@ -638,7 +638,7 @@ def from_nfo(full_path):
         if key in metadata:
             rating = mapping.get(metadata[key], None)
             if rating:
-                metadata[key] = str(rating)
+                metadata[key] = rating
             else:
                 del metadata[key]
 
