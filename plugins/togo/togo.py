@@ -1,3 +1,4 @@
+import cgi
 import cookielib
 import logging
 import os
@@ -142,7 +143,7 @@ class ToGo(Plugin):
                 try:
                     page = self.tivo_open(theurl)
                 except IOError, e:
-                    handler.redir(UNABLE % (tivoIP, e), 10)
+                    handler.redir(UNABLE % (tivoIP, cgi.escape(str(e))), 10)
                     return
                 tivo_cache[theurl] = {'thepage': minidom.parse(page),
                                       'thepage_time': time.time()}
