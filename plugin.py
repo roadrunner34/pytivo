@@ -140,7 +140,8 @@ class Plugin(object):
 
         return files, totalFiles, index
 
-    def get_files(self, handler, query, filterFunction=None, force_alpha=False):
+    def get_files(self, handler, query, filterFunction=None,
+                  force_alpha=False, allow_recurse=True):
 
         class FileData:
             def __init__(self, name, isdir):
@@ -183,7 +184,7 @@ class Plugin(object):
 
         file_type = query.get('Filter', [''])[0]
 
-        recurse = query.get('Recurse', ['No'])[0] == 'Yes'
+        recurse = allow_recurse and query.get('Recurse', ['No'])[0] == 'Yes'
 
         filelist = []
         rc = self.recurse_cache

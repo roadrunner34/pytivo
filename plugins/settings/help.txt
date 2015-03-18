@@ -186,6 +186,23 @@ the "copy" codec, so it's low-overhead.
 Example Settings: True/False
 Available In: Shares
 
+allow_recurse
+
+Mode: select
+Options: Auto/On/Off
+Default Setting: Auto
+Valid Entries: On/Off/Auto
+Required: No
+Description: Only meaningful in shares of type "video". The TiVo uses 
+the "Recurse" option in a query to provide a flattened, ungrouped 
+listing. Recent versions of the TiVo software sometimes forget the 
+grouping flag, and unexpectedly request an ungrouped list. So, the 
+default now is to ignore the "Recurse" flag on those platforms. This 
+option lets you enable it anyway ("Yes"), or force it to be ignored even 
+on TiVos that aren't recognized as having the bug ("No").
+Example Settings: On/Off/Auto
+Available In: Shares
+
 optres
 
 Mode: checkbox
