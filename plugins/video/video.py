@@ -419,7 +419,7 @@ class BaseVideo(Plugin):
         force_alpha = container.getboolean('force_alpha')
         ar = container.get('allow_recurse', 'auto').lower()
         if ar == 'auto':
-            allow_recurse = tsn[0] < '7'
+            allow_recurse = not tsn or tsn[0] < '7'
         else:
             allow_recurse = ar in ('1', 'yes', 'true', 'on')
         use_html = query.get('Format', [''])[0].lower() == 'text/html'
