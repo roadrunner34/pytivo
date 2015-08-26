@@ -24,6 +24,7 @@
 
     History
     -------
+     * 2015-08-26: Remove "free" atom stripping - wjm3
      * 2013-01-28: Support strange zero-name, zero-length atoms, re-license
                    under the MIT license, version bump to 1.7
      * 2010-02-21: Add support for final mdat atom with zero size, patch by
@@ -68,7 +69,7 @@ import struct
 
 from StringIO import StringIO
 
-VERSION = "1.7wjm3"
+VERSION = "1.7.1wjm3"
 CHUNK_SIZE = 8192
 
 log = logging.getLogger('pyTivo.video.qt-faststart')
@@ -191,7 +192,6 @@ def process(datastream, outfile, skip=0):
     index = get_index(datastream)
 
     mdat_pos = 999999
-    free_size = 0
 
     # Make sure moov occurs AFTER mdat, otherwise no need to run!
     for atom, pos, size in index:
@@ -201,31 +201,16 @@ def process(datastream, outfile, skip=0):
             moov_size = size
         elif atom == "mdat":
             mdat_pos = pos
-        elif atom == "free" and pos < mdat_pos:
-            # This free atom is before the mdat!
-            free_size += size
-            log.info("Removing free atom at %d (%d bytes)" % (pos, size))
-        elif atom == "\x00\x00\x00\x00" and pos < mdat_pos:
-            # This is some strange zero atom with incorrect size
-            free_size += 8
-            log.info("Removing strange zero atom at %s (8 bytes)" % pos)
  
-    # Offset to shift positions
-    offset = moov_size - free_size
-
     if moov_pos < mdat_pos:
-        # moov appears to be in the proper place, don't shift by moov size
-        offset -= moov_size
-        if not free_size:
-            # No free atoms and moov is correct, we are done!
-            log.debug('mp4 already streamable -- copying')
-            datastream.seek(skip)
-            while True:
-                block = datastream.read(CHUNK_SIZE)
-                if not block:
-                    break
-                output(outfile, 0, block)
-            return count
+        log.debug('mp4 already streamable -- copying')
+        datastream.seek(skip)
+        while True:
+            block = datastream.read(CHUNK_SIZE)
+            if not block:
+                break
+            output(outfile, 0, block)
+        return count
 
     # Read and fix moov
     datastream.seek(moov_pos)
@@ -250,7 +235,7 @@ def process(datastream, outfile, skip=0):
         # Patch and write entries
         moov.seek(-csize * entry_count, os.SEEK_CUR)
         moov.write(struct.pack(">" + ctype * entry_count,
-                               *[entry + offset for entry in entries]))
+                               *[entry + moov_size for entry in entries]))
 
     log.info("Writing output...")
 
@@ -265,7 +250,7 @@ def process(datastream, outfile, skip=0):
     output(outfile, skip, moov.read())
 
     # Write the rest
-    atoms = [item for item in index if item[0] not in ["ftyp", "moov", "free"]]
+    atoms = [item for item in index if item[0] not in ["ftyp", "moov"]]
     for atom, pos, size in atoms:
         datastream.seek(pos)
 
