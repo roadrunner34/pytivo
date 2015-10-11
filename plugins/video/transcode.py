@@ -320,9 +320,12 @@ def select_videocodec(inFile, tsn, mime=''):
     vInfo = video_info(inFile)
     if tivo_compatible_video(vInfo, tsn, mime)[0]:
         codec = 'copy'
-        if (mime == 'video/x-tivo-mpeg-ts' and
-            vInfo.get('vCodec', '') == 'h264'):
-            codec += ' -bsf h264_mp4toannexb'
+        if (mime == 'video/x-tivo-mpeg-ts'):
+            org_codec = vInfo.get('vCodec', '')
+            if org_codec == 'h264':
+                codec += ' -bsf h264_mp4toannexb'
+            elif org_codec == 'hevc':
+                codec += ' -bsf hevc_mp4toannexb'
     else:
         codec = 'mpeg2video -pix_fmt yuv420p'  # default
     return '-vcodec ' + codec
@@ -537,8 +540,9 @@ def tivo_compatible_video(vInfo, tsn, mime=''):
     message = (True, '')
     while True:
         codec = vInfo.get('vCodec', '')
+        is4k = config.is4Ktivo(tsn) and codec == 'hevc'
         if mime == 'video/mp4':
-            if codec != 'h264':
+            if not (is4k or codec == 'h264'):
                 message = (False, 'vCodec %s not compatible' % codec)
 
             break
@@ -550,7 +554,7 @@ def tivo_compatible_video(vInfo, tsn, mime=''):
             break
 
         if mime == 'video/x-tivo-mpeg-ts':
-            if codec not in ('h264', 'mpeg2video'):
+            if not (is4k or codec in ('h264', 'mpeg2video')):
                 message = (False, 'vCodec %s not compatible' % codec)
 
             break

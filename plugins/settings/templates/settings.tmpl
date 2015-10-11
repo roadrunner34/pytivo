@@ -124,6 +124,7 @@
          onchange="switchDiv(options[selectedIndex].value, 'set-');
          return true;">
         <option value="set-server">Global Server Settings</option>
+        <option value="set-fk_tivos">4K TiVo Settings</option>
         <option value="set-hd_tivos">HD TiVo Settings</option>
         <option value="set-sd_tivos">SD TiVo Settings</option>
 #for $name, $data in $shares_data
@@ -174,6 +175,12 @@
 	<b>Global Server Settings</b><br>
         $rows('Server', $server_data, $server_known)
         $add_setting('server', 'Server')
+</div>
+
+<div id="set-fk_tivos" class="sett-sect">
+	<b>4K TiVo Settings</b><br>
+        $rows('_tivo_4K', $fk_tivos_data, $fk_tivos_known)
+        $add_setting('fk_tivos', '_tivo_4K')
 </div>
 
 <div id="set-hd_tivos" class="sett-sect">
