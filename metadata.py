@@ -754,12 +754,12 @@ def dump(output, metadata):
         value = metadata[key]
         if type(value) == list:
             for item in value:
-                output.write('%s: %s\n' % (key, item.encode('utf-8')))
+                output.write('%s : %s\n' % (key, item.encode('utf-8')))
         else:
             if key in HUMAN and value in HUMAN[key]:
-                output.write('%s: %s\n' % (key, HUMAN[key][value]))
+                output.write('%s : %s\n' % (key, HUMAN[key][value]))
             else:
-                output.write('%s: %s\n' % (key, value.encode('utf-8')))
+                output.write('%s : %s\n' % (key, value.encode('utf-8')))
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
