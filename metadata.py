@@ -134,21 +134,54 @@ def from_moov(full_path):
 
     # The following 1-to-1 correspondence of atoms to pyTivo
     # variables is TV-biased
-    keys = {'tvnn': 'callsign', 'tven': 'episodeNumber',
+    keys = {'tvnn': 'callsign',
             'tvsh': 'seriesTitle'}
-
+    isTVShow = False
+    if 'stik' in mp4meta:
+        isTVShow = (mp4meta['stik'] == mutagen.mp4.MediaKind.TV_SHOW)
+    else:
+        isTVShow = 'tvsh' in mp4meta
     for key, value in mp4meta.items():
         if type(value) == list:
             value = value[0]
-        if key == 'stik':
-            metadata['isEpisode'] = ['false', 'true'][value == 'TV Show']
-        elif key in keys:
+        if key in keys:
             metadata[keys[key]] = value
+        elif key == 'tven':
+            #could be programId (EP, SH, or MV) or "SnEn"
+            if value.startswith('SH'):
+                metadata['isEpisode'] = 'false'
+            elif value.startswith('MV') or value.startswith('EP'):
+                metadata['isEpisode'] = 'true'
+                metadata['programId'] = value
+            elif key.startswith('S') and key.count('E') == 1:
+                epstart = key.find('E')
+                seasonstr = key[1:epstart]
+                episodestr = key[epstart+1:]
+                if (seasonstr.isdigit() and episodestr.isdigit()):
+                    if len(episodestr) < 2:
+                        episodestr = '0' + episodestr
+                    metadata['episodeNumber'] = seasonstr+episodestr
+        elif key == 'tvsn':
+            #put together tvsn and tves to make episodeNumber
+            tvsn = str(value)
+            tves = '00'
+            if 'tves' in mp4meta:
+                tvesValue = mp4meta['tves']
+                if type(tvesValue) == list:
+                    tvesValue = tvesValue[0]
+                tves = str(tvesValue)
+                if len(tves) < 2:
+                    tves = '0' + tves
+            metadata['episodeNumber'] = tvsn+tves
         # These keys begin with the copyright symbol \xA9
         elif key == '\xa9day':
-            if len(value) == 4:
-                value += '-01-01T16:00:00Z'
-            metadata['originalAirDate'] = value
+            if isTVShow :
+                if len(value) == 4:
+                    value += '-01-01T16:00:00Z'
+                metadata['originalAirDate'] = value
+            else:
+                if len(value) >= 4:
+                    metadata['movieYear'] = value[:4]
             #metadata['time'] = value
         elif key in ['\xa9gen', 'gnre']:
             for k in ('vProgramGenre', 'vSeriesGenre'):
@@ -157,7 +190,7 @@ def from_moov(full_path):
                 else:
                     metadata[k] = [value]
         elif key == '\xa9nam':
-            if 'tvsh' in mp4meta:
+            if isTVShow:
                 metadata['episodeTitle'] = value
             else:
                 metadata['title'] = value
