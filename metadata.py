@@ -46,6 +46,11 @@ HUMAN = {'mpaaRating': {1: 'G', 2: 'PG', 3: 'PG-13', 4: 'R', 5: 'X',
          'starRating': {1: '1', 2: '1.5', 3: '2', 4: '2.5', 5: '3',
                         6: '3.5', 7: '4'}}
 
+COLOR_CODES = {'1': ["B & W", 1],
+               '2': ["COLOR AND B & W", 2],
+               '3': ["COLORIZED", 3],
+               '4': ["COLOR", 4]}
+
 BOM = '\xef\xbb\xbf'
 
 GB = 1024 ** 3
@@ -367,7 +372,8 @@ def from_text(full_path):
 
     for rating, ratings in [('tvRating', TV_RATINGS),
                             ('mpaaRating', MPAA_RATINGS),
-                            ('starRating', STAR_RATINGS)]:
+                            ('starRating', STAR_RATINGS),
+                            ('colorCode', COLOR_CODES)]:
         x = metadata.get(rating, '').upper()
         if x in ratings:
             metadata[rating] = ratings[x]
