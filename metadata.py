@@ -228,7 +228,16 @@ def from_moov(full_path):
                 for item in items:
                     if item in data:
                         metadata[items[item]] = [x['name'] for x in data[item]]
-
+        elif (key == '----:com.pyTivo.pyTivo:tiVoINFO' and
+              'plistlib' in sys.modules):
+            try:
+                data = plistlib.readPlistFromString(value)
+            except:
+                pass
+            else:
+                for item in data:
+                    metadata[item] = data[item]
+                    
     mp4_cache[full_path] = metadata
     return metadata
 
