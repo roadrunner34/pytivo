@@ -44,12 +44,10 @@ HUMAN = {'mpaaRating': {1: 'G', 2: 'PG', 3: 'PG-13', 4: 'R', 5: 'X',
          'tvRating': {1: 'Y7', 2: 'Y', 3: 'G', 4: 'PG', 5: '14',
                       6: 'MA', 7: 'NR'},
          'starRating': {1: '1', 2: '1.5', 3: '2', 4: '2.5', 5: '3',
-                        6: '3.5', 7: '4'}}
-
-COLOR_CODES = {'1': ["B & W", 1],
-               '2': ["COLOR AND B & W", 2],
-               '3': ["COLORIZED", 3],
-               '4': ["COLOR", 4]}
+                        6: '3.5', 7: '4'},
+         'colorCode': {1: 'B & W', 2: 'COLOR AND B & W',
+                        3: 'COLORIZED', 4: 'COLOR'}
+         }
 
 BOM = '\xef\xbb\xbf'
 
@@ -72,6 +70,9 @@ def get_tv(rating):
 
 def get_stars(rating):
     return HUMAN['starRating'].get(rating, '')
+
+def get_color(value):
+    return HUMAN['colorCode'].get(value, 'COLOR')
 
 def human_size(raw):
     raw = float(raw)
@@ -237,7 +238,7 @@ def from_moov(full_path):
             else:
                 for item in data:
                     metadata[item] = data[item]
-                    
+
     mp4_cache[full_path] = metadata
     return metadata
 
@@ -381,8 +382,7 @@ def from_text(full_path):
 
     for rating, ratings in [('tvRating', TV_RATINGS),
                             ('mpaaRating', MPAA_RATINGS),
-                            ('starRating', STAR_RATINGS),
-                            ('colorCode', COLOR_CODES)]:
+                            ('starRating', STAR_RATINGS)]:
         x = metadata.get(rating, '').upper()
         if x in ratings:
             metadata[rating] = ratings[x]
