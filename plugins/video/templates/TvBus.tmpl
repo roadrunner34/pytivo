@@ -25,7 +25,7 @@
             <element>$escape($element)</element>
             #end for
       </vChoreographer>
-      <colorCode value="$video.colorCode[1]">$video.colorCode[0]</colorCode>
+      <colorCode value="$video.colorCode">$get_color($video.colorCode)</colorCode>
       <description>$escape($video.description)</description>
       <vDirector>
             #for $element in $video.vDirector

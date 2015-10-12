@@ -123,6 +123,12 @@ class cdata(object):
 
     from struct import error
 
+    char_le = staticmethod(lambda data: struct.unpack('<b', data)[0])
+    uchar_le = staticmethod(lambda data: struct.unpack('<B', data)[0])
+
+    char_be = staticmethod(lambda data: struct.unpack('>b', data)[0])
+    uchar_be = staticmethod(lambda data: struct.unpack('>B', data)[0])
+
     short_le = staticmethod(lambda data: struct.unpack('<h', data)[0])
     ushort_le = staticmethod(lambda data: struct.unpack('<H', data)[0])
 

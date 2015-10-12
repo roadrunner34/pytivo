@@ -44,7 +44,10 @@ HUMAN = {'mpaaRating': {1: 'G', 2: 'PG', 3: 'PG-13', 4: 'R', 5: 'X',
          'tvRating': {1: 'Y7', 2: 'Y', 3: 'G', 4: 'PG', 5: '14',
                       6: 'MA', 7: 'NR'},
          'starRating': {1: '1', 2: '1.5', 3: '2', 4: '2.5', 5: '3',
-                        6: '3.5', 7: '4'}}
+                        6: '3.5', 7: '4'},
+         'colorCode': {1: 'B & W', 2: 'COLOR AND B & W',
+                        3: 'COLORIZED', 4: 'COLOR'}
+         }
 
 BOM = '\xef\xbb\xbf'
 
@@ -67,6 +70,9 @@ def get_tv(rating):
 
 def get_stars(rating):
     return HUMAN['starRating'].get(rating, '')
+
+def get_color(value):
+    return HUMAN['colorCode'].get(value, 'COLOR')
 
 def human_size(raw):
     raw = float(raw)
@@ -134,21 +140,54 @@ def from_moov(full_path):
 
     # The following 1-to-1 correspondence of atoms to pyTivo
     # variables is TV-biased
-    keys = {'tvnn': 'callsign', 'tven': 'episodeNumber',
+    keys = {'tvnn': 'callsign',
             'tvsh': 'seriesTitle'}
-
+    isTVShow = False
+    if 'stik' in mp4meta:
+        isTVShow = (mp4meta['stik'] == mutagen.mp4.MediaKind.TV_SHOW)
+    else:
+        isTVShow = 'tvsh' in mp4meta
     for key, value in mp4meta.items():
         if type(value) == list:
             value = value[0]
-        if key == 'stik':
-            metadata['isEpisode'] = ['false', 'true'][value == 'TV Show']
-        elif key in keys:
+        if key in keys:
             metadata[keys[key]] = value
+        elif key == 'tven':
+            #could be programId (EP, SH, or MV) or "SnEn"
+            if value.startswith('SH'):
+                metadata['isEpisode'] = 'false'
+            elif value.startswith('MV') or value.startswith('EP'):
+                metadata['isEpisode'] = 'true'
+                metadata['programId'] = value
+            elif key.startswith('S') and key.count('E') == 1:
+                epstart = key.find('E')
+                seasonstr = key[1:epstart]
+                episodestr = key[epstart+1:]
+                if (seasonstr.isdigit() and episodestr.isdigit()):
+                    if len(episodestr) < 2:
+                        episodestr = '0' + episodestr
+                    metadata['episodeNumber'] = seasonstr+episodestr
+        elif key == 'tvsn':
+            #put together tvsn and tves to make episodeNumber
+            tvsn = str(value)
+            tves = '00'
+            if 'tves' in mp4meta:
+                tvesValue = mp4meta['tves']
+                if type(tvesValue) == list:
+                    tvesValue = tvesValue[0]
+                tves = str(tvesValue)
+                if len(tves) < 2:
+                    tves = '0' + tves
+            metadata['episodeNumber'] = tvsn+tves
         # These keys begin with the copyright symbol \xA9
         elif key == '\xa9day':
-            if len(value) == 4:
-                value += '-01-01T16:00:00Z'
-            metadata['originalAirDate'] = value
+            if isTVShow :
+                if len(value) == 4:
+                    value += '-01-01T16:00:00Z'
+                metadata['originalAirDate'] = value
+            else:
+                if len(value) >= 4:
+                    metadata['movieYear'] = value[:4]
             #metadata['time'] = value
         elif key in ['\xa9gen', 'gnre']:
             for k in ('vProgramGenre', 'vSeriesGenre'):
@@ -157,7 +196,7 @@ def from_moov(full_path):
                 else:
                     metadata[k] = [value]
         elif key == '\xa9nam':
-            if 'tvsh' in mp4meta:
+            if isTVShow:
                 metadata['episodeTitle'] = value
             else:
                 metadata['title'] = value
@@ -190,6 +229,15 @@ def from_moov(full_path):
                 for item in items:
                     if item in data:
                         metadata[items[item]] = [x['name'] for x in data[item]]
+        elif (key == '----:com.pyTivo.pyTivo:tiVoINFO' and
+              'plistlib' in sys.modules):
+            try:
+                data = plistlib.readPlistFromString(value)
+            except:
+                pass
+            else:
+                for item in data:
+                    metadata[item] = data[item]
 
     mp4_cache[full_path] = metadata
     return metadata
@@ -721,12 +769,12 @@ def dump(output, metadata):
         value = metadata[key]
         if type(value) == list:
             for item in value:
-                output.write('%s: %s\n' % (key, item.encode('utf-8')))
+                output.write('%s : %s\n' % (key, item.encode('utf-8')))
         else:
             if key in HUMAN and value in HUMAN[key]:
-                output.write('%s: %s\n' % (key, HUMAN[key][value]))
+                output.write('%s : %s\n' % (key, HUMAN[key][value]))
             else:
-                output.write('%s: %s\n' % (key, value.encode('utf-8')))
+                output.write('%s : %s\n' % (key, value.encode('utf-8')))
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:

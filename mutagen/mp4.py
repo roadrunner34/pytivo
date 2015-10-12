@@ -38,7 +38,7 @@ _CONTAINERS = ["moov", "udta", "trak", "mdia", "meta", "ilst",
                "stbl", "minf", "moof", "traf"]
 _SKIP_SIZE = { "meta": 4 }
 
-__all__ = ['MP4', 'Open', 'delete', 'MP4Cover']
+__all__ = ['MP4', 'Open', 'delete', 'MP4Cover', 'MediaKind', 'HDVideo', 'ContentRating']
 
 class MP4Cover(str):
     """A cover artwork.
@@ -258,7 +258,8 @@ class MP4Tags(DictProxy, Metadata):
         order = ["\xa9nam", "\xa9ART", "\xa9wrt", "\xa9alb",
                  "\xa9gen", "gnre", "trkn", "disk",
                  "\xa9day", "cpil", "pgap", "pcst", "tmpo",
-                 "\xa9too", "----", "covr", "\xa9lyr"]
+                 "\xa9too", "----", "covr", "\xa9lyr",
++                "stik", "tvsh", "tven", "tvsn", "tves", "tvnn"]
         order = dict(zip(order, range(len(order))))
         last = len(order)
         # If there's no key-based way to distinguish, order by length.
@@ -497,6 +498,44 @@ class MP4Tags(DictProxy, Metadata):
         values = map(cdata.to_ushort_be, value)
         return self.__render_data(key, 0x15, values)
 
+    def __parse_8int(self, atom, data):
+        self[atom.name] = [cdata.uchar_be(value[1]) for
+                           value in self.__parse_data(atom, data)]
+
+    def __render_8int(self, key, value):
+        try:
+            if len(value) == 0:
+                return self.__render_data(key, 0x07, b"")
+
+            if min(value) < 0 or max(value) >= 2 ** 8:
+                raise MP4MetadataValueError(
+                    "invalid 8 bit integers: %r" % value)
+        except TypeError:
+            raise MP4MetadataValueError(
+                "%s must be a list of 8 bit integers" % (key))
+
+        values = list(map(cdata.to_uchar_be, value))
+        return self.__render_data(key, 0x07, values)
+
+    def __parse_32int(self, atom, data):
+        self[atom.name] = [cdata.uint_be(value[1]) for
+                           value in self.__parse_data(atom, data)]
+
+    def __render_32int(self, key, value):
+        try:
+            if len(value) == 0:
+                return self.__render_data(key, 0x31, b"")
+
+            if min(value) < 0 or max(value) >= 2 ** 32:
+                raise MP4MetadataValueError(
+                    "invalid 32 bit integers: %r" % value)
+        except TypeError:
+            raise MP4MetadataValueError(
+                "%s must be a list of 32 bit integers" % (key))
+
+        values = list(map(cdata.to_uint_be, value))
+        return self.__render_data(key, 0x31, values)
+
     def __parse_bool(self, atom, data):
         try: self[atom.name] = bool(ord(data[16:17]))
         except TypeError: self[atom.name] = False
@@ -557,6 +596,11 @@ class MP4Tags(DictProxy, Metadata):
         "covr": (__parse_cover, __render_cover),
         "purl": (__parse_text, __render_text, 0),
         "egid": (__parse_text, __render_text, 0),
+        "tvsn": (__parse_32int, __render_32int),
+        "tves": (__parse_32int, __render_32int),
+        "stik": (__parse_8int, __render_8int),
+        "hdvd": (__parse_8int, __render_8int),
+        "rtng": (__parse_8int, __render_8int),
         }
 
     def pprint(self):
@@ -685,3 +729,23 @@ Open = MP4
 def delete(filename):
     """Remove tags from a file."""
     MP4(filename).delete()
+
+
+class MediaKind:
+  MUSIC = [1]
+  AUDIO_BOOK = [2]
+  MUSIC_VIDEO = [6]
+  MOVIE = [9]
+  TV_SHOW = [10]
+  BOOKLET = [11]
+  RINGTONE = [14]
+
+class HDVideo:
+  STANDARD = [0]
+  P720 = [1]
+  P1080 = [2]
+
+class ContentRating:
+  NONE = [0]
+  CLEAN = [2]
+  EXPLICIT = [4]

@@ -520,6 +520,7 @@ class BaseVideo(Plugin):
             t.get_tv = metadata.get_tv
             t.get_mpaa = metadata.get_mpaa
             t.get_stars = metadata.get_stars
+            t.get_color = metadata.get_color
             details = str(t)
             self.tvbus_cache[(tsn, file_path)] = details
         return details
@@ -599,7 +600,7 @@ class VideoDetails(DictMixin):
             'displayMajorNumber' : '0',
             'displayMinorNumber' : '0',
             'isEpisode' : 'true',
-            'colorCode' : ('COLOR', '4'),
+            'colorCode' : '4',
             'showType' : ('SERIES', '5')
         }
         if key in defaults:
