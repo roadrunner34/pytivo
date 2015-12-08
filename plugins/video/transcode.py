@@ -988,7 +988,7 @@ def video_info(inFile, cache=True):
     return vInfo
 
 def audio_check(inFile, tsn):
-    cmd_string = ('-y -vcodec mpeg2video -r 29.97 -b 1000k -acodec copy ' +
+    cmd_string = ('-y -c:v mpeg2video -r 29.97 -b:v 1000k -c:a copy ' +
                   select_audiolang(inFile, tsn) + ' -t 00:00:01 -f vob -')
     fname = unicode(inFile, 'utf-8')
     if mswindows:
