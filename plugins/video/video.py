@@ -358,7 +358,7 @@ class BaseVideo(Plugin):
         if config.getDebug() and 'vHost' not in data:
             compatible, reason = transcode.tivo_compatible(full_path, tsn, mime)
             if compatible:
-                transcode_options = {}
+                transcode_options = []
             else:
                 transcode_options = transcode.transcode(True, full_path,
                                                         '', tsn, mime)
@@ -368,7 +368,7 @@ class BaseVideo(Plugin):
                 ["%s=%s" % (k, v)
                  for k, v in sorted(vInfo.items(), reverse=True)] +
                 ['TRANSCODE OPTIONS: '] +
-                ["%s" % (v) for k, v in transcode_options.items()] +
+                transcode_options +
                 ['SOURCE FILE: ', os.path.basename(full_path)]
             )
 

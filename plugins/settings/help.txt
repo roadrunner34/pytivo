@@ -414,22 +414,6 @@ speed up transcoding.
 Example Settings: -threads 2
 Available In: Server, Tivos, FK_tivos, HD_tivos, SD_tivos
 
-ffmpeg_tmpl
-
-Default Setting: %(video_codec)s %(video_fps)s %(video_br)s
-%(max_video_br)s %(buff_size)s %(aspect_ratio)s
-%(audio_br)s %(audio_fr)s %(audio_ch)s %(audio_codec)s %(audio_lang)s
-%(ffmpeg_pram)s %(format)s
-Valid Entries: A valid ffmpeg command
-Required: No
-Description: This is a template used by pyTivo to control the parameters
-passed to ffmpeg. It should not be necessary to modify this template
-unless there is a particular parameter you do not wish ffmpeg to use and
-it cannot be overridden by specifying that parameter in the pyTivo.conf
-file.
-Example Settings: See Above and the forum.
-Available In: Server, Tivos, FK_tivos, HD_tivos, SD_tivos
-
 aspect169
 
 Default Setting: True

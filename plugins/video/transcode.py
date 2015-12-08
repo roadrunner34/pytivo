@@ -54,25 +54,32 @@ def debug(msg):
     logger.debug(msg)
 
 def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
-    settings = {'video_codec': select_videocodec(inFile, tsn, mime),
-                'video_br': select_videobr(inFile, tsn),
-                'video_fps': select_videofps(inFile, tsn),
-                'max_video_br': select_maxvideobr(tsn),
-                'buff_size': select_buffsize(tsn),
-                'aspect_ratio': ' '.join(select_aspect(inFile, tsn)),
-                'audio_br': select_audiobr(tsn),
-                'audio_fr': select_audiofr(inFile, tsn),
-                'audio_ch': select_audioch(inFile, tsn),
-                'audio_codec': select_audiocodec(isQuery, inFile, tsn),
-                'audio_lang': select_audiolang(inFile, tsn),
-                'ffmpeg_pram': select_ffmpegprams(tsn),
-                'format': select_format(tsn, mime)}
+    vcodec = select_videocodec(inFile, tsn, mime)
 
+    settings = [select_buffsize(tsn), vcodec]
+    if not vcodec.startswith('-c:v copy'):
+        settings += [select_videobr(inFile, tsn),
+                     select_videofps(inFile, tsn),
+                     select_maxvideobr(tsn),
+                     ' '.join(select_aspect(inFile, tsn))]
+
+    acodec = select_audiocodec(isQuery, inFile, tsn)
+    settings += [acodec]
+    if not acodec.startswith('-c:a copy'):
+        settings += [select_audiobr(tsn),
+                     select_audiofr(inFile, tsn),
+                     select_audioch(inFile, tsn)]
+
+    settings += [select_audiolang(inFile, tsn),
+                 select_ffmpegprams(tsn),
+                 select_format(tsn, mime)]
+
+    settings = ' '.join(settings).split()
     if isQuery:
         return settings
 
     ffmpeg_path = config.get_bin('ffmpeg')
-    cmd_string = config.getFFmpegTemplate(tsn) % settings
+
     fname = unicode(inFile, 'utf-8')
     if mswindows:
         fname = fname.encode('cp1252')
@@ -87,12 +94,12 @@ def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
             cmd = ''
             ffmpeg = tivodecode
         else:
-            cmd = [ffmpeg_path, '-i', '-'] + cmd_string.split()
+            cmd = [ffmpeg_path, '-i', '-'] + settings
             ffmpeg = subprocess.Popen(cmd, stdin=tivodecode.stdout,
                                       stdout=subprocess.PIPE,
                                       bufsize=(512 * 1024))
     else:
-        cmd = [ffmpeg_path, '-i', fname] + cmd_string.split()
+        cmd = [ffmpeg_path, '-i', fname] + settings
         ffmpeg = subprocess.Popen(cmd, bufsize=(512 * 1024),
                                   stdout=subprocess.PIPE)
 
@@ -243,7 +250,7 @@ def select_audiocodec(isQuery, inFile, tsn='', mime=''):
     if ((codec == 'copy' and codectype == 'mpeg2video' and not copy_flag) or
         (copy_flag and copy_flag.lower() == 'false')):
         copyts = ''
-    return '-acodec ' + codec + copyts
+    return '-c:a ' + codec + copyts
 
 def select_audiofr(inFile, tsn):
     freq = '48000'  # default
@@ -328,10 +335,10 @@ def select_videocodec(inFile, tsn, mime=''):
                 codec += ' -bsf hevc_mp4toannexb'
     else:
         codec = 'mpeg2video -pix_fmt yuv420p'  # default
-    return '-vcodec ' + codec
+    return '-c:v ' + codec
 
 def select_videobr(inFile, tsn, mime=''):
-    return '-b ' + str(select_videostr(inFile, tsn, mime) / 1000) + 'k'
+    return '-b:v ' + str(select_videostr(inFile, tsn, mime) / 1000) + 'k'
 
 def select_videostr(inFile, tsn, mime=''):
     vInfo = video_info(inFile)
@@ -349,7 +356,7 @@ def select_videostr(inFile, tsn, mime=''):
     return video_str
 
 def select_audiobr(tsn):
-    return '-ab ' + config.getAudioBR(tsn)
+    return '-b:a ' + config.getAudioBR(tsn)
 
 def select_maxvideobr(tsn):
     return '-maxrate ' + config.getMaxVideoBR(tsn)
@@ -686,22 +693,17 @@ def mp4_remux(inFile, basename, tsn=''):
         fname = fname.encode('cp1252')
         oname = oname.encode('cp1252')
 
-    settings = {'video_codec': '-vcodec copy',
-            'video_br': select_videobr(inFile, tsn),
-            'video_fps': select_videofps(inFile, tsn),
-            'max_video_br': select_maxvideobr(tsn),
-            'buff_size': select_buffsize(tsn),
-            'aspect_ratio': ' '.join(select_aspect(inFile, tsn)),
-            'audio_br': select_audiobr(tsn),
-            'audio_fr': select_audiofr(inFile, tsn),
-            'audio_ch': select_audioch(inFile, tsn),
-            'audio_codec': select_audiocodec(False, inFile, tsn, 'video/mp4'),
-            'audio_lang': select_audiolang(inFile, tsn),
-            'ffmpeg_pram': select_ffmpegprams(tsn),
-            'format': '-f mp4'}
+    acodec = select_audiocodec(False, inFile, tsn, 'video/mp4')
+    settings = [select_buffsize(tsn), '-c:v copy', acodec]
+    if not acodec.startswith('-c:a copy'):
+        settings += [select_audiobr(tsn),
+                     select_audiofr(inFile, tsn),
+                     select_audioch(inFile, tsn)]
+    settings += [select_audiolang(inFile, tsn),
+                 select_ffmpegprams(tsn),
+                 '-f mp4']
 
-    cmd_string = config.getFFmpegTemplate(tsn) % settings
-    cmd = [ffmpeg_path, '-i', fname] + cmd_string.split() + [oname]
+    cmd = [ffmpeg_path, '-i', fname] + ' '.join(settings).split() + [oname]
 
     debug('transcoding to tivo model ' + tsn[:3] + ' using ffmpeg command:')
     debug(' '.join(cmd))

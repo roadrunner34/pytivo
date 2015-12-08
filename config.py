@@ -248,15 +248,6 @@ def getFFmpegWait():
     else:
         return 0
 
-def getFFmpegTemplate(tsn):
-    tmpl = get_tsn('ffmpeg_tmpl', tsn, True)
-    if tmpl:
-        return tmpl
-    return '%(video_codec)s %(video_fps)s %(video_br)s %(max_video_br)s \
-            %(buff_size)s %(aspect_ratio)s %(audio_br)s \
-            %(audio_fr)s %(audio_ch)s %(audio_codec)s %(audio_lang)s \
-            %(ffmpeg_pram)s %(format)s'
-
 def getFFmpegPrams(tsn):
     return get_tsn('ffmpeg_pram', tsn, True)
 
