@@ -222,17 +222,6 @@ resolution to an "S2 compatible" resolution.
 Example Settings: True/False
 Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
 
-video_fps
-
-Default Setting: 29.97 for S2 Tivo, same as source for S3/HD TiVo
-Valid Entries: 29.97, 23.98, 25, 59.94
-Required: No
-Description: Sets the frame rate used by ffmpeg. pyTivo uses 29.97 for
-S2's, and uses the same frame rate as the source on HD TiVos. The
-default setting should work fine for most transfers.
-Example Settings: 29.97, 23.98, 25, 59.94
-Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
-
 video_br
 
 Default Setting: 4096K for SD TiVo's, 16384K for HD TiVo's
@@ -334,33 +323,6 @@ TiVo compatibility.
 Example Settings: 384K, 448K
 Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
 
-audio_fr
-
-Default Setting: same frequency as source
-Valid Entries: 44100, 48000
-Required: No
-Description: Sets the audio sampling frequency. Defaults to frequency of
-the source file for better audio sync if it is 44100 or 48000. Otherwise
-48000 is used.
-Example Settings: 44100, 48000
-Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
-
-audio_ch
-
-Default Setting: same channels as source
-Valid Entries: any number compatible with ffmpeg and the audio codec selected
-Required: No
-Description: Sets the number of audio channels used by ffmpeg. ffmpeg
-will retain the same number of channels as the source file by default.
-Change this setting to 2 if you do not want to retain 5.1 audio. A bug
-in ffmpeg will sometimes move the center audio channel to the left or
-right speaker. Setting this option to 2, on an as needed basis, or
-permanently, will correct this at the loss of 5.1 audio. But this should
-only be necessary on rare occasions where the source file is an mkv or
-xvid with ac3 5.1 audio bitrate above 448k.
-Example Settings: 2, 6
-Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
-
 audio_lang
 
 Recommended Setting: 5.1, DTS, en  (entire string including commas)
@@ -385,21 +347,6 @@ new audio tag to assign to that stream.  You can specify multiple
 streams with one Override line --<br>
 Override_mapAudio: 0:1 eng 0:2 "long tag" 0:3 foo<br>
 Example Settings: eng, ger, spa, en, ge, 0.0, 0.1, 0.2, 0x80, 0x81 etc...
-Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
-
-copy_ts
-
-Default Setting: True
-Valid Entries: True/False
-Required: No
-Description: Adds the copy timestamps setting (-copyts) to the ffmpeg
-command.  This setting helps correct audio synchronization problems that
-commonly occur during transcoding.  You can leave this field blank
-unless you wish to disable it. pyTivo defaults to True except when
-pyTivo uses acodec copy, in which case copyts is not needed, and a
-conflict could also occur if the source file has really corrupt
-sections.
-Example Settings: True/False
 Available In: Tivos, FK_tivos, HD_tivos, SD_tivos
 
 ffmpeg_pram
