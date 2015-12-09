@@ -292,18 +292,12 @@ def nearestTivoWidth(width):
     return nearest(width, getValidWidths())
 
 def getTivoHeight(tsn):
-    height = get_tsn('height', tsn)
-    if height:
-        return nearestTivoHeight(int(height))
     if is4Ktivo(tsn):
         return 2160
     else:
         return [480, 1080][isHDtivo(tsn)]
 
 def getTivoWidth(tsn):
-    width = get_tsn('width', tsn)
-    if width:
-        return nearestTivoWidth(int(width))
     if is4Ktivo(tsn):
         return 3840
     else:

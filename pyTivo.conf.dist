@@ -42,14 +42,6 @@ ffmpeg=/usr/bin/ffmpeg
 # broadcasts.)
 #beacon=192.168.1.255 listen
 
-# Output Pixel Width:
-# Width, defaults to 544 for S2, 1920 for S3/HD
-# Height, defaults to 480 for S2, 1080 for S3/HD
-# Valid widths: [S3/HD = 1920, 1440, 1280], [S2/S3/HD = 720, 704, 544, 480, 352]
-# Valid heights: [S3/HD = 1080, 720], [S2/S3/HD = 480]
-#width=1920
-#height=1080
-
 # Togo settings:
 # Set this up if you wish to have TiVo ToGo support.  This allows you to
 # copy videos from your TiVo via a web page. 
@@ -64,8 +56,6 @@ ffmpeg=/usr/bin/ffmpeg
 # If you want to use 16:9 or 4:3 on this tivo
 #aspect169=true
 
-#width=1440
-#height=720
 #audio_br=320K
 #video_br=12Mi
 
