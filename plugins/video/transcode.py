@@ -545,12 +545,6 @@ def tivo_compatible_video(vInfo, tsn, mime=''):
 
             break
 
-        if mime == 'video/bif':
-            if codec != 'vc1':
-                message = (False, 'vCodec %s not compatible' % codec)
-
-            break
-
         if mime == 'video/x-tivo-mpeg-ts':
             if not (is4k or codec in ('h264', 'mpeg2video')):
                 message = (False, 'vCodec %s not compatible' % codec)
@@ -620,12 +614,6 @@ def tivo_compatible_audio(vInfo, inFile, tsn, mime=''):
                                       audio_lang)
             break
 
-        if mime == 'video/bif':
-            if codec != 'wmav2':
-                message = (False, 'aCodec %s not compatible' % codec)
-
-            break
-
         if inFile[-5:].lower() == '.tivo':
             break
 
@@ -659,7 +647,6 @@ def tivo_compatible_container(vInfo, inFile, mime=''):
     container = vInfo.get('container', '')
     if ((mime == 'video/mp4' and
          (container != 'mov' or inFile.lower().endswith('.mov'))) or
-        (mime == 'video/bif' and container != 'asf') or
         (mime == 'video/x-tivo-mpeg-ts' and container != 'mpegts') or
         (mime in ['video/x-tivo-mpeg', 'video/mpeg', ''] and
          (container != 'mpeg' or vInfo['vCodec'] == 'mpeg1video'))):
