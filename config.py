@@ -109,13 +109,6 @@ def get_zc():
 
     return True
 
-def get_mind(tsn):
-    if tsn and tsn.startswith('663'):
-        default = 'symind.tivo.com:8181'
-    else:
-        default = 'mind.tivo.com:8181'
-    return get_server('tivo_mind', default)
-
 def getBeaconAddresses():
     return get_server('beacon', '255.255.255.255')
 

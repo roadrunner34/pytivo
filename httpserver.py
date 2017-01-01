@@ -339,12 +339,6 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         else:
             t.togo = ''
 
-        if (config.get_server('tivo_username') and
-            config.get_server('tivo_password')):
-            t.shares = '<br>Push from video shares:<br>'
-        else:
-            t.shares = ''
-
         for section, settings in config.getShares():
             plugin_type = settings.get('type')
             if plugin_type == 'settings':
@@ -359,13 +353,6 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                             '&amp;TiVo=' + config.tivos[tsn]['address'] +
                             '">' + config.tivos[tsn]['name'] +
                             '</a><br>')
-            elif plugin_type and t.shares:
-                plugin = GetPlugin(plugin_type)
-                if hasattr(plugin, 'Push'):
-                    t.shares += ('<a href="/TiVoConnect?Command=' +
-                                 'QueryContainer&amp;Container=' +
-                                 quote(section) + '&Format=text/html">' +
-                                 section + '</a><br>')
 
         self.send_html(str(t))
 

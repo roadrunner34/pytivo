@@ -16,7 +16,6 @@ from lrucache import LRUCache
 
 import config
 import metadata
-import mind
 import qtfaststart
 import transcode
 from plugin import EncodeUnicode, Plugin, quote
@@ -27,13 +26,10 @@ SCRIPTDIR = os.path.dirname(__file__)
 
 CLASS_NAME = 'Video'
 
-PUSHED = '<h3>Queued for Push to %s</h3> <p>%s</p>'
-
 # Preload the templates
 def tmpl(name):
     return file(os.path.join(SCRIPTDIR, 'templates', name), 'rb').read()
 
-HTML_CONTAINER_TEMPLATE = tmpl('container_html.tmpl')
 XML_CONTAINER_TEMPLATE = tmpl('container_xml.tmpl')
 TVBUS_TEMPLATE = tmpl('TvBus.tmpl')
 
@@ -54,8 +50,6 @@ try:
 except:
     use_extensions = False
 
-queue = []  # Recordings to push
-
 def uniso(iso):
     return time.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S')
 
@@ -65,120 +59,7 @@ def isodt(iso):
 def isogm(iso):
     return int(calendar.timegm(uniso(iso)))
 
-class Pushable(object):
-
-    def push_one_file(self, f):
-        file_info = VideoDetails()
-        file_info['valid'] = transcode.supported_format(f['path'])
-
-        mime = 'video/mpeg'
-        if config.isHDtivo(f['tsn']):
-            for m in ['video/mp4', 'video/bif']:
-                if transcode.tivo_compatible(f['path'], f['tsn'], m)[0]:
-                    mime = m
-                    break
-
-            if (mime == 'video/mpeg' and
-                transcode.mp4_remuxable(f['path'], f['tsn'])):
-                new_path = transcode.mp4_remux(f['path'], f['name'], f['tsn'])
-                if new_path:
-                    mime = 'video/mp4'
-                    f['name'] = new_path
-
-        if file_info['valid']:
-            file_info.update(self.metadata_full(f['path'], f['tsn'], mime))
-
-        url = f['url'] + quote(f['name'])
-
-        title = file_info['seriesTitle']
-        if not title:
-            title = file_info['title']
-
-        source = file_info['seriesId']
-        if not source:
-            source = title
-
-        subtitle = file_info['episodeTitle']
-        try:
-            m = mind.getMind(f['tsn'])
-            m.pushVideo(
-                tsn = f['tsn'],
-                url = url,
-                description = file_info['description'],
-                duration = file_info['duration'] / 1000,
-                size = file_info['size'],
-                title = title,
-                subtitle = subtitle,
-                source = source,
-                mime = mime,
-                tvrating = file_info['tvRating'])
-        except Exception, msg:
-            logger.error(msg)
-
-    def process_queue(self):
-        while queue:
-            time.sleep(5)
-            item = queue.pop(0)
-            self.push_one_file(item)
-
-    def readip(self):
-        """ returns your external IP address by querying dyndns.org """
-        f = urllib.urlopen('http://checkip.dyndns.org/')
-        s = f.read()
-        m = re.search('([\d]*\.[\d]*\.[\d]*\.[\d]*)', s)
-        return m.group(0)
-
-    def Push(self, handler, query):
-        try:
-            tsn = query['tsn'][0]
-        except:
-            logger.error('Push requires a TiVo Service Number')
-            handler.send_error(404)
-            return
-
-        if not tsn in config.tivos:
-            for key, value in config.tivos.items():
-                if value.get('name') == tsn:
-                    tsn = key
-                    break
-        try:
-            tivo_name = config.tivos[tsn]['name']
-        except:
-            tivo_name = tsn
-
-        container = quote(query['Container'][0].split('/')[0])
-        ip = config.get_ip(tsn)
-        port = config.getPort()
-
-        baseurl = 'http://%s:%s/%s' % (ip, port, container)
-        if config.getIsExternal(tsn):
-            exturl = config.get_server('externalurl')
-            if exturl:
-                if not exturl.endswith('/'):
-                    exturl += '/'
-                baseurl = exturl + container
-            else:
-                ip = self.readip()
-                baseurl = 'http://%s:%s/%s' % (ip, port, container)
- 
-        path = self.get_local_base_path(handler, query)
-
-        files = query.get('File', [])
-        for f in files:
-            file_path = os.path.normpath(path + '/' + f)
-            queue.append({'path': file_path, 'name': f, 'tsn': tsn,
-                          'url': baseurl})
-            if len(queue) == 1:
-                thread.start_new_thread(Video.process_queue, (self,))
-
-            logger.info('[%s] Queued "%s" for Push to %s' %
-                        (time.strftime('%d/%b/%Y %H:%M:%S'),
-                         unicode(file_path, 'utf-8'), tivo_name))
-
-        files = [unicode(f, 'utf-8') for f in files]
-        handler.redir(PUSHED % (tivo_name, '<br>'.join(files)), 5)
-
-class BaseVideo(Plugin):
+class Video(Plugin):
 
     CONTENT_TYPE = 'x-container/tivo-videos'
 
@@ -425,7 +306,6 @@ class BaseVideo(Plugin):
             allow_recurse = not tsn or tsn[0] < '7'
         else:
             allow_recurse = ar in ('1', 'yes', 'true', 'on')
-        use_html = query.get('Format', [''])[0].lower() == 'text/html'
 
         files, total, start = self.get_files(handler, query,
                                              self.video_file_filter,
@@ -475,10 +355,7 @@ class BaseVideo(Plugin):
 
             videos.append(video)
 
-        if use_html:
-            t = Template(HTML_CONTAINER_TEMPLATE, filter=EncodeUnicode)
-        else:
-            t = Template(XML_CONTAINER_TEMPLATE, filter=EncodeUnicode)
+        t = Template(XML_CONTAINER_TEMPLATE, filter=EncodeUnicode)
         t.container = handler.cname
         t.name = subcname
         t.total = total
@@ -489,10 +366,7 @@ class BaseVideo(Plugin):
         t.crc = zlib.crc32
         t.guid = config.getGUID()
         t.tivos = config.tivos
-        if use_html:
-            handler.send_html(str(t))
-        else:
-            handler.send_xml(str(t))
+        handler.send_xml(str(t))
 
     def use_ts(self, tsn, file_path):
         if config.is_ts_capable(tsn):
@@ -566,9 +440,6 @@ class BaseVideo(Plugin):
         details = self.get_details_xml(tsn, file_path)
 
         handler.send_xml(details)
-
-class Video(BaseVideo, Pushable):
-        pass
 
 class VideoDetails(DictMixin):
 

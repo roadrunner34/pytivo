@@ -87,8 +87,8 @@ Valid Entries: Operating system path
 Required: No
 Description: This is the full path to your tivodecode binary. If not 
 set, pyTivo checks for it in a "bin" subdirectory, and then in the PATH.
-tivodecode is only needed for certain functions (currently pushing .TiVo 
-files or transcoding HD .TiVo files to SD).
+tivodecode is only needed for certain functions (currently transcoding 
+HD .TiVo files to SD).
 Example Settings: Linux = /usr/bin/tivodecode |
 >Windows = C:\pyTivo\bin\tivodecode.exe
 Available In: Server
@@ -368,39 +368,6 @@ check file info, not for transcoding), in seconds.
 Example Settings: 10, 15, 20.
 Available In: Server
 
-tivo_username
-
-Default Setting: None
-Valid Entries: tivo.com username
-Required: No
-Description: Your username (email address) at tivo.com. This is required 
-for the "Push" feature. If you don't plan to use Push, you don't need to 
-set this.
-Example Settings: user@example.com
-Available In: Server, Tivos
-
-tivo_password
-
-Default Setting: None
-Valid Entries: tivo.com password
-Required: No
-Description: Your password at tivo.com. This is required for the "Push" 
-feature. If you don't plan to use Push, you don't need to set this.
-Example Settings: password
-Available In: Server, Tivos
-
-tivo_mind
-
-Default Setting: mind.tivo.com:8181
-Valid Entries: address:port
-Required: No
-Description: The TiVo "mind" server and port to use. This is the server 
-that pyTivo connects to in order to make Push requests. For most users 
-in the U.S., the default is the correct value. Australian users will 
-need to use "symind", while users in a beta program need "stagingmind".
-Example Settings: symind.tivo.com:8181
-Available In: Server
-
 tivo_mak
 
 Default Setting: None
@@ -409,9 +376,8 @@ Required: No
 Description: Your Media Access Key -- find it on your TiVo under 
 Messages and Settings, Account and System information, Media Access Key. 
 This is required for the "ToGo" feature, and for anything that uses 
-tivodecode (pushing .TiVo files, transcoding HD .TiVo files to SD 
-TiVos). If you don't plan to use these features, you don't need to set 
-this.
+tivodecode (transcoding HD .TiVo files to SD TiVos). If you don't plan 
+to use these features, you don't need to set this.
 Example Settings: 012345678
 Available In: Server, Tivos
 
