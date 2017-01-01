@@ -16,7 +16,6 @@ from lrucache import LRUCache
 
 import config
 import metadata
-import qtfaststart
 import transcode
 from plugin import EncodeUnicode, Plugin, quote
 
@@ -137,18 +136,15 @@ class Video(Plugin):
                 logger.debug('"%s" is tivo compatible' % fname)
                 f = open(fname, 'rb')
                 try:
-                    if mime == 'video/mp4':
-                        count = qtfaststart.process(f, handler.wfile, offset)
-                    else:
-                        if offset:
-                            offset -= len(thead)
-                            f.seek(offset)
-                        while True:
-                            block = f.read(512 * 1024)
-                            if not block:
-                                break
-                            handler.wfile.write(block)
-                            count += len(block)
+                    if offset:
+                        offset -= len(thead)
+                        f.seek(offset)
+                    while True:
+                        block = f.read(512 * 1024)
+                        if not block:
+                            break
+                        handler.wfile.write(block)
+                        count += len(block)
                 except Exception, msg:
                     logger.info(msg)
                 f.close()

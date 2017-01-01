@@ -216,22 +216,13 @@ def select_audiocodec(isQuery, inFile, tsn='', mime=''):
     codectype = vInfo['vCodec']
     # Default, compatible with all TiVo's
     codec = 'ac3'
-    if mime == 'video/mp4':
-        compatiblecodecs = ('mpeg4aac', 'libfaad', 'mp4a', 'aac',
-                            'ac3', 'liba52')
-    else:
-        compatiblecodecs = ('ac3', 'liba52', 'mp2')
+    compatiblecodecs = ('ac3', 'liba52', 'mp2')
 
     if vInfo['aCodec'] in compatiblecodecs:
         aKbps = vInfo['aKbps']
         aCh = vInfo['aCh']
         if aKbps == None:
-            if vInfo['aCodec'] in ('mpeg4aac', 'libfaad', 'mp4a', 'aac'):
-                # along with the channel check below this should
-                # pass any AAC audio that has undefined 'aKbps' and
-                # is <= 2 channels.  Should be TiVo compatible.
-                codec = 'copy'
-            elif not isQuery:
+            if not isQuery:
                 vInfoQuery = audio_check(inFile, tsn)
                 if vInfoQuery == None:
                     aKbps = None
@@ -539,12 +530,6 @@ def tivo_compatible_video(vInfo, tsn, mime=''):
     while True:
         codec = vInfo.get('vCodec', '')
         is4k = config.is4Ktivo(tsn) and codec == 'hevc'
-        if mime == 'video/mp4':
-            if not (is4k or codec == 'h264'):
-                message = (False, 'vCodec %s not compatible' % codec)
-
-            break
-
         if mime == 'video/x-tivo-mpeg-ts':
             if not (is4k or codec in ('h264', 'mpeg2video')):
                 message = (False, 'vCodec %s not compatible' % codec)
@@ -598,22 +583,6 @@ def tivo_compatible_audio(vInfo, inFile, tsn, mime=''):
             debug('No audio stream detected')
             break
 
-        if mime == 'video/mp4':
-            if codec not in ('mpeg4aac', 'libfaad', 'mp4a', 'aac',
-                             'ac3', 'liba52'):
-                message = (False, 'aCodec %s not compatible' % codec)
-                break
-            if vInfo['aCodec'] in ('mpeg4aac', 'libfaad', 'mp4a', 'aac') and (vInfo['aCh'] == None or vInfo['aCh'] > 2):
-                message = (False, 'aCodec %s is only supported with 2 or less channels, the track has %s channels' % (codec, vInfo['aCh']))
-                break
-
-            audio_lang = config.get_tsn('audio_lang', tsn)
-            if audio_lang:
-                if vInfo['mapAudio'][0][0] != select_audiolang(inFile, tsn)[-3:]:
-                    message = (False, '%s preferred audio track exists' %
-                                      audio_lang)
-            break
-
         if inFile[-5:].lower() == '.tivo':
             break
 
@@ -645,55 +614,12 @@ def tivo_compatible_audio(vInfo, inFile, tsn, mime=''):
 def tivo_compatible_container(vInfo, inFile, mime=''):
     message = (True, '')
     container = vInfo.get('container', '')
-    if ((mime == 'video/mp4' and
-         (container != 'mov' or inFile.lower().endswith('.mov'))) or
-        (mime == 'video/x-tivo-mpeg-ts' and container != 'mpegts') or
+    if ((mime == 'video/x-tivo-mpeg-ts' and container != 'mpegts') or
         (mime in ['video/x-tivo-mpeg', 'video/mpeg', ''] and
          (container != 'mpeg' or vInfo['vCodec'] == 'mpeg1video'))):
         message = (False, 'container %s not compatible' % container)
 
     return message
-
-def mp4_remuxable(inFile, tsn=''):
-    vInfo = video_info(inFile)
-    return tivo_compatible_video(vInfo, tsn, 'video/mp4')[0]
-
-def mp4_remux(inFile, basename, tsn=''):
-    outFile = inFile + '.pyTivo-temp'
-    newname = basename + '.pyTivo-temp'
-    if os.path.exists(outFile):
-        return None  # ugh!
-
-    ffmpeg_path = config.get_bin('ffmpeg')
-    fname = unicode(inFile, 'utf-8')
-    oname = unicode(outFile, 'utf-8')
-    if mswindows:
-        fname = fname.encode('cp1252')
-        oname = oname.encode('cp1252')
-
-    acodec = select_audiocodec(False, inFile, tsn, 'video/mp4')
-    settings = select_buffsize(tsn) + ['-c:v', 'copy'] + acodec
-    if not acodec[1] == 'copy':
-        settings += (select_audiobr(tsn) +
-                     select_audiofr(inFile, tsn) +
-                     select_audioch(inFile, tsn))
-    settings += [select_audiolang(inFile, tsn),
-                 select_ffmpegprams(tsn),
-                 '-f', 'mp4']
-
-    cmd = [ffmpeg_path, '-i', fname] + ' '.join(settings).split() + [oname]
-
-    debug('transcoding to tivo model ' + tsn[:3] + ' using ffmpeg command:')
-    debug(' '.join(cmd))
-
-    ffmpeg = subprocess.Popen(cmd)
-    debug('remuxing ' + inFile + ' to ' + outFile)
-    if ffmpeg.wait():
-        debug('error during remuxing')
-        os.remove(outFile)
-        return None
-
-    return newname
 
 def tivo_compatible(inFile, tsn='', mime=''):
     vInfo = video_info(inFile)
