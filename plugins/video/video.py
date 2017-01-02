@@ -171,9 +171,6 @@ class Video(Plugin):
                     (time.strftime('%d/%b/%Y %H:%M:%S'), fname, 
                      tivo_name, count, rate))
 
-        if fname.endswith('.pyTivo-temp'):
-            os.remove(fname)
-
     def __duration(self, full_path):
         return transcode.video_info(full_path)['millisecs']
 
