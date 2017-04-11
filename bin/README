@@ -1,0 +1,9 @@
+tivolibre.exe is a version of TivoDecoder.jar taken from the tivolibre project...
+
+https://github.com/fflewddur/tivolibre
+
+and compiled to an exe using a paid copy of Jar2Exe...
+
+http://www.jar2exe.com/
+
+for best results you should include a folder called jre in the same directory with a complete copy of the Java JRE of at least v7. 
