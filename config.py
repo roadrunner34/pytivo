@@ -9,6 +9,11 @@ import sys
 import uuid
 from ConfigParser import NoOptionError
 
+# determine if application is a script file or frozen exe
+SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = os.path.dirname(sys.executable)
+
 class Bdict(dict):
     def getboolean(self, x):
         return self.get(x, 'False').lower() in ('1', 'yes', 'true', 'on')
@@ -23,8 +28,10 @@ def init(argv):
     guid = uuid.uuid4()
     tivos_found = False
 
-    p = os.path.dirname(__file__)
-    config_files = ['/etc/pyTivo.conf', os.path.join(p, 'pyTivo.conf')]
+    if 'APPDATA' in os.environ:
+        config_files = ['/etc/pyTivo.conf', os.path.join(SCRIPTDIR, 'pyTivo.conf'), os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')]
+    else:
+        config_files = ['/etc/pyTivo.conf', os.path.join(SCRIPTDIR, 'pyTivo.conf')]
 
     try:
         opts, _ = getopt.getopt(argv, 'c:e:', ['config=', 'extraconf='])
@@ -66,6 +73,9 @@ def reset():
             config.add_section(section)
 
 def write():
+    if not os.path.isdir(os.path.dirname(configs_found[-1])):
+        os.mkdir(os.path.dirname(configs_found[-1]))
+
     f = open(configs_found[-1], 'w')
     config.write(f)
     f.close()
@@ -225,7 +235,7 @@ def get_bin(fname):
     else:
         fext = ''
 
-    for path in ([os.path.join(os.path.dirname(__file__), 'bin')] +
+    for path in ([os.path.join(SCRIPTDIR, 'bin')] +
                  os.getenv('PATH').split(os.pathsep)):
         fpath = os.path.join(path, fname + fext)
         if os.path.exists(fpath) and os.path.isfile(fpath):

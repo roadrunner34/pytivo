@@ -26,15 +26,19 @@ def exceptionLogger(*args):
 
 def last_date():
     lasttime = -1
-    path = os.path.dirname(__file__)
-    if not path:
-        path = '.'
-    for root, dirs, files in os.walk(path):
-        for name in files:
-            if name.endswith('.py'):
-                tm = os.path.getmtime(os.path.join(root, name))
-                if tm > lasttime:
-                    lasttime = tm
+	
+    if getattr(sys, 'frozen', False):
+        lasttime = os.path.getmtime(sys.executable)
+    else:
+        path = os.path.dirname(__file__)
+        if not path:
+            path = '.'
+        for root, dirs, files in os.walk(path):
+            for name in files:
+                if name.endswith('.py'):
+                    tm = os.path.getmtime(os.path.join(root, name))
+                    if tm > lasttime:
+                        lasttime = tm
 
     return time.asctime(time.localtime(lasttime))
 

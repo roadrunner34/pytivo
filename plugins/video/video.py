@@ -1,6 +1,7 @@
 import calendar
 import logging
 import os
+import sys
 import re
 import struct
 import thread
@@ -21,7 +22,10 @@ from plugin import EncodeUnicode, Plugin, quote
 
 logger = logging.getLogger('pyTivo.video.video')
 
+# determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = os.path.join(sys._MEIPASS, 'plugins', 'video')
 
 CLASS_NAME = 'Video'
 

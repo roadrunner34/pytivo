@@ -5,6 +5,7 @@ import gzip
 import logging
 import mimetypes
 import os
+import sys
 import shutil
 import socket
 import time
@@ -17,7 +18,10 @@ from Cheetah.Template import Template
 import config
 from plugin import GetPlugin, EncodeUnicode
 
+# determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = sys._MEIPASS
 
 SERVER_INFO = """<?xml version="1.0" encoding="utf-8"?>
 <TiVoServer>
@@ -292,12 +296,16 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.send_header('Expires', '0')
         if refresh:
             self.send_header('Refresh', refresh)
+        self.send_header('Access-Control-Allow-Origin', '*') #uncomment for angular development in browser
         self.end_headers()
         self.wfile.write(page)
         self.wfile.flush()
 
     def send_xml(self, page):
         self.send_fixed(page, 'text/xml')
+
+    def send_json(self, page):
+        self.send_fixed(page, 'application/json; charset=utf-8')
 
     def send_html(self, page, code=200, refresh=''):
         self.send_fixed(page, 'text/html; charset=utf-8', code, refresh)

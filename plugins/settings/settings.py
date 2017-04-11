@@ -1,6 +1,8 @@
 import logging
 import os
-from urllib import quote
+import sys
+import json
+from urllib import quote, unquote
 
 from Cheetah.Template import Template
 
@@ -8,7 +10,10 @@ import buildhelp
 import config
 from plugin import EncodeUnicode, Plugin
 
+# determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = os.path.join(sys._MEIPASS, 'plugins', 'settings')
 
 CLASS_NAME = 'Settings'
 
@@ -68,12 +73,8 @@ class Settings(Plugin):
         shares_data = []
         for section in config.config.sections():
             if not section.startswith(('_tivo_', 'Server')):
-                if (not (config.config.has_option(section, 'type')) or
-                    config.config.get(section, 'type').lower() not in
-                    ['settings', 'togo']):
-                    shares_data.append((section,
-                                        dict(config.config.items(section,
-                                                                 raw=True))))
+                if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
+                    shares_data.append((section, dict(config.config.items(section, raw=True))))
 
         t = Template(SETTINGS_TEMPLATE, filter=EncodeUnicode)
         t.mode = buildhelp.mode
@@ -143,3 +144,96 @@ class Settings(Plugin):
         config.write()
 
         handler.redir(SETTINGS_MSG, 5)
+
+    def GetSettings(self, handler, query):
+        # Read config file new each time in case there was any outside edits
+        config.reset()
+
+        shares_data = []
+        for section in config.config.sections():
+            if not section.startswith(('_tivo_', 'Server')):
+                if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
+                    shares_data.append((section, dict(config.config.items(section, raw=True))))
+
+        json_config = {}
+        json_config['Server'] = {}
+        json_config['TiVos'] = {}
+        json_config['Shares'] = {}
+        for section in config.config.sections():
+            if section == 'Server':
+                for name, value in config.config.items(section):
+                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_ts_format', 'togo_decode'}:
+                        try:
+                            json_config['Server'][name] = config.config.getboolean(section, name)
+                        except ValueError:
+                            json_config['Server'][name] = value
+                    else:
+                        json_config['Server'][name] = value
+            else:
+                if section.startswith('_tivo_'):
+                    json_config['TiVos'][section] = {}
+                    for name, value in config.config.items(section):
+                        if name in {'optres'}:
+                            try:
+                                json_config['TiVos'][section][name] = config.config.getboolean(section, name)
+                            except ValueError:
+                                json_config['TiVos'][section][name] = value
+                        else:
+                            json_config['TiVos'][section][name] = value
+                else:
+                    if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
+                        json_config['Shares'][section] = {}
+                        for name, value in config.config.items(section):
+                            if name in {'force_alpha', 'force_ffmpeg'}:
+                                try:
+                                    json_config['Shares'][section][name] = config.config.getboolean(section, name)
+                                except ValueError:
+                                    json_config['Shares'][section][name] = value
+                            else:
+                                json_config['Shares'][section][name] = value
+
+        handler.send_json(json.dumps(json_config))
+
+    def GetDriveList(self, handler, query):
+        import psutil, win32api
+        json_config = {}
+        for index, part in enumerate(psutil.disk_partitions(all=False)):
+            if (part.fstype == ''):
+                continue
+
+            json_config[index] = {}
+            json_config[index]['device'] = part.device
+            json_config[index]['mountpoint'] = part.mountpoint
+            json_config[index]['fstype'] = part.fstype
+            json_config[index]['opts'] = part.opts
+
+            if sys.platform == 'win32':
+                info = win32api.GetVolumeInformation(part.device)
+                if (info[0] == ''):
+                    json_config[index]['name'] = 'Local Disk'
+                else:
+                    json_config[index]['name'] = info[0]
+
+        handler.send_json(json.dumps(json_config))
+
+    def GetFileList(self, handler, query):
+        json_config = {}
+
+        basepath = '/'
+        if 'BasePath' in query:
+            basepath = unicode(unquote(query['BasePath'][0]), 'utf-8')
+
+        try:
+            for index, fname in enumerate(os.listdir(basepath)):
+                path = os.path.join(basepath, fname)
+
+                json_config[index] = {}
+                json_config[index]['path'] = path
+                if os.path.isdir(path):
+                    json_config[index]['isFolder'] = True
+                else:
+                    json_config[index]['isFolder'] = False
+        except:
+            print "Error"
+
+        handler.send_json(json.dumps(json_config))

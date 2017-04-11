@@ -53,7 +53,10 @@ from lrucache import LRUCache
 from plugin import EncodeUnicode, Plugin, quote, unquote
 from plugins.video.transcode import kill
 
+# determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = os.path.join(sys._MEIPASS, 'plugins', 'photo')
 
 CLASS_NAME = 'Photo'
 

@@ -1,6 +1,10 @@
 import os
+import sys
 
+# determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
+if getattr(sys, 'frozen', False):
+    SCRIPTDIR = os.path.join(sys._MEIPASS, 'plugins', 'settings')
 
 ## Build initial help list
 help_list = {}

@@ -76,8 +76,11 @@ class ZCBroadcast:
         # Get the names of servers offering TiVo videos
         browser = zeroconf.ServiceBrowser(self.rz, VIDS, ZCListener(names))
 
-        # Give them a second to respond
-        time.sleep(1)
+        # Give them up to 30 seconds to respond
+        waitSeconds = 0
+        while not names and waitSeconds < 30:
+            time.sleep(1)
+            waitSeconds += 1
 
         # Any results?
         if names:

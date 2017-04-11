@@ -88,13 +88,14 @@ Pull from $tname
 			</span>
 			#if 'Url' in $row and row['Url'] in $status
 				#set $this_status = $status[$row['Url']]
-				#if $this_status['running'] and $this_status['rate'] != ""
+				#if $this_status['running'] and $this_status['rate'] != 0
 					<div class="transferring">
 					#set $gb = '%.3f GB' % (float($this_status['size']) / (1024 ** 3))
-					Transfering - $this_status['rate']<br>$gb
+					#set $mbps = '%.2f Mb/s' % ($this_status['rate'] / (1024*1024))
+					Transfering - $mbps<br>$gb
 					<a href="/TiVoConnect?Command=ToGoStop&amp;Container=$quote($container)&amp;Url=$quote($row['Url'])">Stop Transfer</a>
 					</div>
-				#elif $this_status['running'] and $this_status['rate'] == ""
+				#elif $this_status['running'] and $this_status['rate'] == 0
 					<div class="transferring">
 					Initiating Transfer<br>
 					Please Wait
@@ -135,7 +136,7 @@ Pull from $tname
   #if ($TotalItems - $ItemCount) > ($ItemStart + 1)
      <tr><td colspan="5">
      #set $Offset = $shows_per_page - 1
-     <a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP&amp;AnchorItem=$FirstAnchor&amp;AnchorOffset=$Offset&amp;Folder=$quote($folder)">Next Page</a>
+     <a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP&amp;AnchorItem=$FirstAnchor&amp;AnchorOffset=$Offset&amp;Folder=$quote($folder)&amp;ItemCount=$shows_per_page">Next Page</a>
      </td></tr>
   #end if
 </table>
@@ -143,8 +144,12 @@ Pull from $tname
  <input type="hidden" name="Command" value="ToGo">
  <input type="hidden" name="Container" value="$container">
  <input type="hidden" name="TiVo" value="$tivoIP">
-#if $has_tivodecode
- <input type="checkbox" name="decode">Decrypt with tivodecode<br>
+#if $has_tivolibre
+ <input type="checkbox" name="decode">Decrypt with tivo-libre<br>
+#else
+ #if $has_tivodecode
+  <input type="checkbox" name="decode">Decrypt with tivodecode<br>
+ #end if
 #end if
  <input type="checkbox" name="save">Save metadata to .txt<br>
 #if $togo_mpegts
