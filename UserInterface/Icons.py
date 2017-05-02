@@ -25,9 +25,14 @@ class ProgramIcon():
 
 class TrayIcon():    
     def __init__( self ):
-        self.running = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_running.png')))
-        self.paused = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_paused.png')))
-        self.stopped = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_stopped.png')))
+        if sys.platform == 'darwin':
+            self.running = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_running_retina.png')))
+            self.paused = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_paused_retina.png')))
+            self.stopped = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_stopped_retina.png')))
+        else:
+            self.running = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_running.png')))
+            self.paused = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_paused.png')))
+            self.stopped = wx.IconFromBitmap(wx.Bitmap(os.path.join(RES_PATH, 'tray_stopped.png')))
         
     def GetRunning( self ):
         return self.running

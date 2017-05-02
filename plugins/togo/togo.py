@@ -9,9 +9,10 @@ import time
 import urllib2
 import urlparse
 import json
-import uuid
+import pytz
 from urllib import quote, unquote
 from xml.dom import minidom
+from datetime import datetime
 
 from Cheetah.Template import Template
 
@@ -85,6 +86,25 @@ tsn = config.get_server('togo_tsn')
 if tsn:
     tivo_opener.addheaders.append(('TSN', tsn))
 
+if mswindows:
+    def PreventComputerFromSleeping(prevent=True):
+        import ctypes
+
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        # SetThreadExecutionState returns 0 when failed, which is ignored. The function should be supported from windows XP and up.
+        if prevent:
+            logger.info('PC sleep has been disabled')
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        else:
+            logger.info('PC sleep has been enabled')
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+
+else:
+    def PreventComputerFromSleeping(prevent=True):
+        # No preventComputerFromSleeping for MacOS and Linux yet.
+        pass
+
 class ToGo(Plugin):
     CONTENT_TYPE = 'text/html'
 
@@ -146,14 +166,24 @@ class ToGo(Plugin):
 
             # Check date of cache
             if (tsn in json_cache and json_cache[tsn]['lastChangeDate'] == LastChangeDate):
+                logger.debug("Retrieving shows from cache")
                 handler.send_json(json_cache[tsn]['data'])
                 return
 
+            global basic_meta
+            global details_urls
 
             # loop through grabbing 50 items at a time (50 is max TiVo will return)
             TotalItems = int(unicode(tag_data(xmldoc, 'TiVoContainer/Details/TotalItems')))
+            if TotalItems <= 0:
+                logger.debug("Total items 0")
+                handler.send_json(json_config)
+                return
+
             GotItems = 0
+            GeneratedID = 0
             while (GotItems < TotalItems):
+                logger.debug("Retrieving shows " + str(GotItems) + "-" + str(GotItems+50) + " of " + str(TotalItems) + " from " + tivo_name )
                 theurl = baseurl + '&Recurse=Yes&ItemCount=50'
                 theurl += '&AnchorOffset=%d' % GotItems
                 auth_handler.add_password('TiVo DVR', ip_port, 'tivo', tivo_mak)
@@ -163,15 +193,22 @@ class ToGo(Plugin):
                     handler.send_error(404)
                     return
 
-                xmldoc = minidom.parse(page)
-                items = xmldoc.getElementsByTagName('Item')
-                page.close()
+                try:
+                    xmldoc = minidom.parse(page)
+                    items = xmldoc.getElementsByTagName('Item')
+                    page.close()
+                except:
+                    logger.debug("XML parser error")
+                    break
 
-                GeneratedID = 0;
+                if len(items) <= 0:
+                    logger.debug("items collection empty")
+                    break
+
                 for item in items:
                     SeriesID = tag_data(item, 'Details/SeriesId')
                     if (not SeriesID):
-                        SeriesID = str(GeneratedID)
+                        SeriesID = 'TS%08d' % GeneratedID
                         GeneratedID += 1
 
                     if (not SeriesID in json_config):
@@ -179,7 +216,7 @@ class ToGo(Plugin):
 
                     EpisodeID = tag_data(item, 'Details/ProgramId')
                     if (not EpisodeID):
-                        EpisodeID = str(GeneratedID)
+                        EpisodeID = 'TS%08d' % GeneratedID
                         GeneratedID += 1
 
                     json_config[SeriesID][EpisodeID] = {}
@@ -197,28 +234,36 @@ class ToGo(Plugin):
                     json_config[SeriesID][EpisodeID]['episodeID'] = EpisodeID
                     json_config[SeriesID][EpisodeID]['seriesID'] = SeriesID
 
-                    if (tag_data(item, 'Details/InProgress') == 'Yes'):
+                    if tag_data(item, 'Details/InProgress') == 'Yes':
                         json_config[SeriesID][EpisodeID]['inProgress'] = True
                     else:
                         json_config[SeriesID][EpisodeID]['inProgress'] = False
 
-                    if (tag_data(item, 'Details/CopyProtected') == 'Yes'):
+                    if tag_data(item, 'Details/CopyProtected') == 'Yes':
                         json_config[SeriesID][EpisodeID]['isProtected'] = True
                     else:
                         json_config[SeriesID][EpisodeID]['isProtected'] = False
 
+                    if tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:suggestion-recording':
+                        json_config[SeriesID][EpisodeID]['isSuggestion'] = True
+                    else:
+                        json_config[SeriesID][EpisodeID]['isSuggestion'] = False
+
+
                     url = urlparse.urljoin(baseurl, json_config[SeriesID][EpisodeID]['url'])
                     json_config[SeriesID][EpisodeID]['url'] = url
-                    if url in basic_meta:
-                        json_config[SeriesID][EpisodeID].update(basic_meta[url])
-                    else:
-                        basic_data = metadata.from_container(item)
-                        json_config[SeriesID][EpisodeID].update(basic_data)
-                        basic_meta[url] = basic_data
+                    if not url in basic_meta:
+                        basic_meta[url] = metadata.from_container(item)
                         if 'detailsUrl' in json_config[SeriesID][EpisodeID]:
                             details_urls[url] = json_config[SeriesID][EpisodeID]['detailsUrl']
 
-                GotItems += int(unicode(tag_data(xmldoc, 'TiVoContainer/ItemCount')))
+                itemCount = tag_data(xmldoc, 'TiVoContainer/ItemCount')
+                try:
+                    logger.debug("Retrieved " + itemCount + " from " + tivo_name)
+                    GotItems += int(itemCount)
+                except ValueError:
+                    GotItems += len(items)
+
 
             # Cache data for reuse
             json_cache[tsn] = {}
@@ -271,8 +316,7 @@ class ToGo(Plugin):
                 result = 0
             return result
 
-        global basic_meta
-        global details_urls
+
         shows_per_page = 50 # Change this to alter the number of shows returned (max is 50)
         if 'ItemCount' in query:
             shows_per_page = int(query['ItemCount'][0])
@@ -421,43 +465,113 @@ class ToGo(Plugin):
 
 
     def get_out_file(self, url, tivoIP, togo_path):
-        parse_url = urlparse.urlparse(url)
+        # Use TiVo Desktop style naming
+        if url in basic_meta:
+            if 'title' in basic_meta[url]:
+                title = basic_meta[url]['title']
 
-        name = unicode(unquote(parse_url[2]), 'utf-8').split('/')[-1].split('.')
-        try:
-            id = unquote(parse_url[4]).split('id=')[1]
-            name.insert(-1, ' - ' + id)
-        except:
-            pass
-        ts = status[url]['ts_format'] and config.is_ts_capable(config.tivos_by_ip(tivoIP))
-        if status[url]['decode']:
-            if ts:
-                name[-1] = 'ts'
+                episodeTitle = ''
+                if 'episodeTitle' in basic_meta[url]:
+                    episodeTitle = basic_meta[url]['episodeTitle']
+
+                recordDate = datetime.now()
+                if 'recordDate' in basic_meta[url]:
+                    recordDate = datetime.fromtimestamp(int(basic_meta[url]['recordDate'], 0), pytz.utc)
+
+                callSign = ''
+                if 'callsign' in basic_meta[url]:
+                    callSign = basic_meta[url]['callsign']
+
+                count = 1
+                while True:
+                    fileName = title
+
+                    sortable = config.get_server('togo_sortable_names', False)
+
+                    if sortable:
+                        fileName += ' - '
+                        fileName += recordDate.strftime('%Y-%m-%d')
+
+                        if len(episodeTitle):
+                            fileName += ' - \'\'' + episodeTitle + '\'\''
+
+                        if len(callSign):
+                            fileName += ' (' + callSign + ')'
+                    else:
+                        if len(episodeTitle):
+                            fileName += ' - \'\'' + episodeTitle + '\'\''
+
+                        fileName += ' (Recorded '
+                        fileName += recordDate.strftime('%b %d, %Y')
+                        if len(callSign):
+                            fileName += ', ' + callSign
+                        fileName += ')'
+
+                    ts = status[url]['ts_format'] and config.is_ts_capable(config.tivos_by_ip(tivoIP))
+                    if not status[url]['decode']:
+                        if ts:
+                            fileName += ' (TS)'
+                        else:
+                            fileName += ' (PS)'
+
+                    if count > 1:
+                        fileName += ' (%d)' % count
+
+                    if status[url]['decode']:
+                        if ts:
+                            fileName += '.ts'
+                        else:
+                            fileName += '.mpg'
+                    else:
+                        fileName += '.tivo'
+
+                    for ch in BADCHAR:
+                        fileName = fileName.replace(ch, BADCHAR[ch])
+
+                    if os.path.isfile(os.path.join(togo_path, fileName)):
+                        count += 1
+                        continue
+
+                    return os.path.join(togo_path, fileName)
+
+            # If we get here then use old style naming
+            parse_url = urlparse.urlparse(url)
+
+            name = unicode(unquote(parse_url[2]), 'utf-8').split('/')[-1].split('.')
+            try:
+                id = unquote(parse_url[4]).split('id=')[1]
+                name.insert(-1, ' - ' + id)
+            except:
+                pass
+            ts = status[url]['ts_format'] and config.is_ts_capable(config.tivos_by_ip(tivoIP))
+            if status[url]['decode']:
+                if ts:
+                    name[-1] = 'ts'
+                else:
+                    name[-1] = 'mpg'
             else:
-                name[-1] = 'mpg'
-        else:
-            if ts:
-                name.insert(-1, ' (TS)')
-            else:
-                name.insert(-1, ' (PS)')
+                if ts:
+                    name.insert(-1, ' (TS)')
+                else:
+                    name.insert(-1, ' (PS)')
 
-        nameHold =  name
-        name.insert(-1, '.')
+            nameHold =  name
+            name.insert(-1, '.')
 
-        count = 2
-        newName = name
-        while (os.path.isfile(os.path.join(togo_path, ''.join(newName)))):
-            newName = nameHold
-            newName.insert(-1, ' (%d)' % count)
-            newName.insert(-1, '.')
-            count += 1
+            count = 2
+            newName = name
+            while (os.path.isfile(os.path.join(togo_path, ''.join(newName)))):
+                newName = nameHold
+                newName.insert(-1, ' (%d)' % count)
+                newName.insert(-1, '.')
+                count += 1
 
-        name = newName
-        name = ''.join(name)
-        for ch in BADCHAR:
-            name = name.replace(ch, BADCHAR[ch])
+            name = newName
+            name = ''.join(name)
+            for ch in BADCHAR:
+                name = name.replace(ch, BADCHAR[ch])
 
-        return os.path.join(togo_path, name)
+            return os.path.join(togo_path, name)
 
 
     def get_tivo_file(self, tivoIP, url, mak, togo_path):
@@ -562,12 +676,15 @@ class ToGo(Plugin):
             del status[url]
 
     def process_queue(self, tivoIP, mak, togo_path):
+        PreventComputerFromSleeping(True)
         while queue[tivoIP]:
             url = queue[tivoIP][0]
             print url
             self.get_tivo_file(tivoIP, url, mak, togo_path)
             queue[tivoIP].pop(0)
         del queue[tivoIP]
+        if len(queue) == 0:
+            PreventComputerFromSleeping(False)
 
     def ToGo(self, handler, query):
         togo_path = config.get_server('togo_path')

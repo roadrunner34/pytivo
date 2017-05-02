@@ -12,7 +12,10 @@ from ConfigParser import NoOptionError
 # determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
 if getattr(sys, 'frozen', False):
-    SCRIPTDIR = os.path.dirname(sys.executable)
+    if sys.platform == 'darwin':
+        SCRIPTDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable))))) # on Mac pyTivo is inside a .app bundle
+    else:
+        SCRIPTDIR = os.path.dirname(sys.executable)
 
 class Bdict(dict):
     def getboolean(self, x):
