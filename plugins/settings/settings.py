@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import json
+import subprocess
 from urllib import quote, unquote
 
 from Cheetah.Template import Template
@@ -143,6 +144,12 @@ class Settings(Plugin):
             config.config.add_section(query['new_Section'][0])
         config.write()
 
+        if getattr(sys, 'frozen', False):
+            if sys.platform == "win32":
+                tivomak_path = os.path.join(os.path.dirname(sys.executable), 'dshow', 'tivomak')
+                tmakcmd = [tivomak_path, '-set', config.config.get('Server', 'tivo_mak')]
+                subprocess.Popen(tmakcmd, shell=True)
+
         handler.redir(SETTINGS_MSG, 5)
 
     def GetSettings(self, handler, query):
@@ -162,7 +169,7 @@ class Settings(Plugin):
         for section in config.config.sections():
             if section == 'Server':
                 for name, value in config.config.items(section):
-                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_ts_format', 'togo_decode'}:
+                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_ts_format', 'togo_decode', 'togo_sortable_names'}:
                         try:
                             json_config['Server'][name] = config.config.getboolean(section, name)
                         except ValueError:
@@ -195,28 +202,55 @@ class Settings(Plugin):
         handler.send_json(json.dumps(json_config))
 
     def GetDriveList(self, handler, query):
-        import psutil, win32api
+        import psutil
         json_config = {}
-        for index, part in enumerate(psutil.disk_partitions(all=False)):
-            if (part.fstype == ''):
-                continue
+        if sys.platform == 'win32':
+            import win32api
+            for index, part in enumerate(psutil.disk_partitions(all=True)):
+                if part.fstype == '':
+                    continue
 
-            json_config[index] = {}
-            json_config[index]['device'] = part.device
-            json_config[index]['mountpoint'] = part.mountpoint
-            json_config[index]['fstype'] = part.fstype
-            json_config[index]['opts'] = part.opts
+                if 'dontbrowse' in part.opts:
+                    continue
 
-            if sys.platform == 'win32':
+                if sys.platform == 'darwin':
+                    if part.fstype != 'hfs':
+                        continue
+
+                json_config[index] = {}
+                json_config[index]['mountpoint'] = part.mountpoint
+
                 info = win32api.GetVolumeInformation(part.device)
                 if (info[0] == ''):
                     json_config[index]['name'] = 'Local Disk'
                 else:
                     json_config[index]['name'] = info[0]
+        elif sys.platform == 'darwin':
+            for index, fname in enumerate(os.listdir('/Volumes')):
+                json_config[index] = {}
+                json_config[index]['mountpoint'] = '/Volumes/' + fname
+                json_config[index]['name'] = fname
 
         handler.send_json(json.dumps(json_config))
 
+    def has_hidden_attribute(self, filepath):
+        result = False
+        if sys.platform == 'win32':
+            import ctypes
+            try:
+                attrs = ctypes.windll.kernel32.GetFileAttributesW(unicode(filepath))
+                if attrs != -1:
+                    result = bool(attrs & 2)
+            except (AttributeError, AssertionError):
+                result = False
+        else:
+            if '/.' in filepath:
+                result = True
+
+        return result
+
     def GetFileList(self, handler, query):
+        import ctypes
         json_config = {}
 
         basepath = '/'
@@ -226,11 +260,19 @@ class Settings(Plugin):
         try:
             for index, fname in enumerate(os.listdir(basepath)):
                 path = os.path.join(basepath, fname)
+                if self.has_hidden_attribute(path):
+                    continue
 
                 json_config[index] = {}
                 json_config[index]['path'] = path
                 if os.path.isdir(path):
-                    json_config[index]['isFolder'] = True
+                    if sys.platform == 'darwin':
+                        if path.endswith('.app'):
+                            json_config[index]['isFolder'] = False
+                        else:
+                            json_config[index]['isFolder'] = True
+                    else:
+                        json_config[index]['isFolder'] = True
                 else:
                     json_config[index]['isFolder'] = False
         except:

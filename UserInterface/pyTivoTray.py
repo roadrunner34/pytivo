@@ -7,16 +7,27 @@ import platform
 import webbrowser
 import ConfigParser
 import urllib2
+import socket
+from threading import Timer
 from Icons import TrayIcon
 
+version = [1, 5, 15]
+
 showDesktopOnStart = False
+setToGoMAK = False
+toGoMAK = ''
+setToGoPath = False
+toGoPath = ''
+publishToGoPath = False
+silentRun = False
+
 
 isWindows = platform.system() == 'Windows'
+isMacOSX = platform.system() == 'Darwin'
 if isWindows:
     from win32event import CreateMutex
     from win32api import GetLastError, CloseHandle
     from winerror import ERROR_ALREADY_EXISTS
-
 
 def CreateMenuItem(menu, label, func):
     item = wx.MenuItem(menu, -1, label)
@@ -35,7 +46,10 @@ def LoadConfigFile():
 
     if not os.path.isfile(configFile):
         if getattr(sys, 'frozen', False):
-            configDir = os.path.dirname(sys.executable)
+            if isMacOSX:
+                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))) # pyTivo tray is inside a .app bundle
+            else:
+                configDir = os.path.dirname(sys.executable)
         else:
             configDir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
         configFile = os.path.join(configDir, 'pyTivo.conf')
@@ -48,6 +62,29 @@ def LoadConfigFile():
     return config
 
 
+def SaveConfigFile(config):
+    # always save to appdata if we can
+    if os.environ['APPDATA']:
+        appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
+        if not os.path.exists(appdataDir):
+            os.makedirs(appdataDir)
+
+        configFile = os.path.join(appdataDir, 'pyTivo.conf')
+    else:
+        if getattr(sys, 'frozen', False):
+            if isMacOSX:
+                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))) # pyTivo tray is inside a .app bundle
+            else:
+                configDir = os.path.dirname(sys.executable)
+        else:
+            configDir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+        configFile = os.path.join(configDir, 'pyTivo.conf')
+
+    file = open(configFile, 'w')
+    config.write(file)
+    file.close()
+
+
 def GetPort():
     config = LoadConfigFile()
     if config.has_option('Server', 'port'):
@@ -56,9 +93,65 @@ def GetPort():
     return '9032'  # default port
 
 
+def GetUpdateCheckInterval():
+    config = LoadConfigFile()
+    if config.has_option('Server', 'update_check_interval'):
+        try:
+            return int(config.get('Server', 'update_check_interval'))
+        except ValueError:
+            return 1
+
+    return 1  # default is once a day
+
+
+def SetUpdateCheckInterval(days):
+    config = LoadConfigFile()
+    if not config.has_section('Server'):
+        config.add_section('Server')
+
+    config.set('Server', 'update_check_interval', days)
+    SaveConfigFile(config)
+
+
 def ShowWebUI():
     webbrowser.open('http://localhost:' + GetPort(), new=0, autoraise=True)
 
+
+def SetTiVoMAK(mak):
+    config = LoadConfigFile()
+    if not config.has_section('Server'):
+        config.add_section('Server')
+
+    config.set('Server', 'tivo_mak', mak)
+    SaveConfigFile(config)
+
+def SetToGoPath(path):
+    config = LoadConfigFile()
+    if not config.has_section('Server'):
+        config.add_section('Server')
+
+    config.set('Server', 'togo_path', path)
+    SaveConfigFile(config)
+
+def PublishToGoPath(path):
+    config = LoadConfigFile()
+    folderName = os.path.basename(path)
+
+    count = 2
+    while True:
+        if config.has_section(folderName):
+            if config.get(folderName, 'path') != path:
+                folderName = os.path.basename(path) + ' %d' % count
+                count += 1
+                continue
+        break
+
+    if not config.has_section(folderName):
+        config.add_section(folderName)
+
+    config.set(folderName, 'path', path)
+    config.set(folderName, 'type', 'video')
+    SaveConfigFile(config)
 
 class pyTivoTray(wx.TaskBarIcon):
     def __init__(self, frame):
@@ -68,16 +161,29 @@ class pyTivoTray(wx.TaskBarIcon):
             if (GetLastError() == ERROR_ALREADY_EXISTS):
                 sys.exit()
 
+        if setToGoMAK:
+            SetTiVoMAK(toGoMAK)
+
+        if setToGoPath:
+            SetToGoPath(toGoPath)
+            if publishToGoPath:
+                PublishToGoPath(toGoPath)
+
+        if silentRun: # Just want to set the MAK and ToGo Paths then exit
+            sys.exit()
+
         self.frame = frame
         super(pyTivoTray, self).__init__()
         self.isPyTivoRunning = False
         self.UpdateIcon()
+        self.versionCheckTimer = None
         self.pyTivoThread = None
         self.StartPyTivoThread()
 
         self.Bind(wx.EVT_TASKBAR_LEFT_DCLICK, self.OnOpenDesktop)
+        self.CheckVersion(True)
 
-        if (showDesktopOnStart):
+        if showDesktopOnStart:
             self.OpenDesktop()
 
 
@@ -97,6 +203,7 @@ class pyTivoTray(wx.TaskBarIcon):
         item.Enable(self.isPyTivoRunning)
 
         menu.AppendSeparator()
+        CreateMenuItem(menu, 'Check for update', self.OnCheckVersion)
         CreateMenuItem(menu, 'Exit', self.OnExit)
         return menu
 
@@ -113,16 +220,102 @@ class pyTivoTray(wx.TaskBarIcon):
 
         import subprocess
         if getattr(sys, 'frozen', False):
-            pyTivoDesktopPath = os.path.join(os.path.dirname(sys.executable), 'desktop\pyTivoDesktop')
             cliOptions = '/setport/' + GetPort()
-            pyTivoDesktopProcess = subprocess.Popen('\"' + pyTivoDesktopPath + '\" ' + cliOptions, shell=True)
+            if isMacOSX:
+                pyTivoDesktopPath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivoDesktop.app')
+                pyTivoDesktopProcess = subprocess.Popen('open -a ' + pyTivoDesktopPath + ' --args ' + cliOptions, shell=True)
+            elif isWindows:
+                pyTivoDesktopPath = os.path.join(os.path.dirname(sys.executable), 'desktop', 'pyTivoDesktop')
+                pyTivoDesktopProcess = subprocess.Popen('\"' + pyTivoDesktopPath + '\" ' + cliOptions, shell=True)
         else:
             parentDirectory = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             pyTivoDesktopProcess = subprocess.Popen(
                 os.path.join(parentDirectory, 'build\desktop\pyTivoDesktop  /setport/') + GetPort(), shell=True)
 
+    def CheckVersion(self, silentCheck):
+        self.checkVersionThread = threading.Thread(target=self.CheckVersionFunc, args=(silentCheck,))
+        self.checkVersionThread.start()
+
+    def CheckVersionFunc(self, silentCheck):
+        isError = False
+        try:
+            if isMacOSX:
+                response = urllib2.urlopen('http://www.pytivodesktop.com/mac/version.info').read()
+            elif isWindows:
+                response = urllib2.urlopen('http://www.pytivodesktop.com/win32/version.info').read()
+            else:
+                return
+
+            latest = response.split('.')
+
+            newer = False
+            if int(latest[0]) > version[0]:
+                newer = True
+            elif int(latest[0]) == version[0]:
+                if int(latest[1]) > version[1]:
+                    newer = True
+                elif int(latest[1]) == version[1]:
+                    if int(latest[2]) > version[2]:
+                        newer = True
+
+            if newer:
+                newVersion = latest[0] + '.' + latest[1] + '.' + latest[2]
+
+                dlg = wx.MessageDialog(None,
+                                       'A new version of pyTivo Desktop is available',
+                                       'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
+
+                currentText = 'Current version: ' + str(version[0]) + '.' + str(version[1]) + '.' + str(version[2])
+                newText = 'Current version: ' + response
+                extMessageText =  currentText + '\n' + newText + '\n\nWould you like to download it now?'
+                dlg.SetExtendedMessage(extMessageText)
+
+                doDownload = dlg.ShowModal() == wx.ID_YES
+                dlg.Destroy()
+
+                if doDownload:
+                    if isMacOSX:
+                        webbrowser.open('http://www.pytivodesktop.com/mac.html', new=2, autoraise=True)
+                    elif isWindows:
+                        webbrowser.open('http://www.pytivodesktop.com/windows.html', new=2, autoraise=True)
+
+            elif not silentCheck:
+                dlg = wx.MessageDialog(None,
+                                       'Your version of pyTivo Desktop is current',
+                                       'No Update Available', wx.OK | wx.ICON_INFORMATION | wx.CENTRE)
+
+                dlg.ShowModal()
+                dlg.Destroy()
+
+        except urllib2.URLError, e:
+            isError = True
+        except socket.timeout, e:
+            isError = True
+
+        if isError:
+            if not silentCheck:
+                dlg = wx.MessageDialog(None,
+                                       'Error contacting server, try again later',
+                                       'Error', wx.OK | wx.ICON_ERROR | wx.CENTRE)
+
+                dlg.ShowModal()
+                dlg.Destroy()
+
+        # Kill existing timer if it's still active
+        if self.versionCheckTimer != None:
+            if self.versionCheckTimer.is_alive():
+                self.versionCheckTimer.cancel()
+                self.versionCheckTimer = None
+
+        # Check user setting for update check interval
+        updateInterval = GetUpdateCheckInterval()
+        if updateInterval > 0:
+            seconds = updateInterval * 86400 # 86400 = seconds in a day
+            self.versionCheckTimer = Timer(float(seconds), self.CheckVersion, args=[True])
+            self.versionCheckTimer.start()
+
     def StartPyTivoThread(self):
-        if self.isPyTivoRunning:
+        if self.isPyTivoRunning or self.pyTivoThread != None:
             return
 
         self.pyTivoStop = threading.Event()
@@ -139,10 +332,14 @@ class pyTivoTray(wx.TaskBarIcon):
 
     def pyTivoThreadFunc(self):
         import subprocess
-        import signal
 
         if getattr(sys, 'frozen', False):
-            pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), shell=True)
+            if isMacOSX:
+                pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), shell=True)
+            elif isWindows:
+                pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), shell=True)
+            else:
+                return
         else:
             pyTivoProcess = subprocess.Popen(
                 'python ' + os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pyTivo.py'), shell=True)
@@ -158,6 +355,7 @@ class pyTivoTray(wx.TaskBarIcon):
                 break
 
         self.isPyTivoRunning = False
+        self.pyTivoThread = None
         self.UpdateIcon()
 
     def OnOpenDesktop(self, event):
@@ -170,7 +368,10 @@ class pyTivoTray(wx.TaskBarIcon):
         self.StopPyTivoThread()
 
     def OnRestartPyTivo(self, event):
-        self.RestartPyTivo();
+        self.RestartPyTivo()
+
+    def OnCheckVersion(self, event):
+        self.CheckVersion(False)
 
     def OnExit(self, event):
         # Confirm user wants to exit
@@ -181,9 +382,13 @@ class pyTivoTray(wx.TaskBarIcon):
         if not exitPyTivo:
             return
 
-        if self.isPyTivoRunning:
-            self.pyTivoStop.set()
-            self.pyTivoThread.join()
+        self.StopPyTivoThread()
+
+        # Kill version check timer
+        if self.versionCheckTimer != None:
+            if self.versionCheckTimer.is_alive():
+                self.versionCheckTimer.cancel()
+                self.versionCheckTimer = None
 
         wx.CallAfter(self.Destroy)
         self.frame.Close()
@@ -207,8 +412,22 @@ def main():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        if sys.argv[1] == '--show-desktop':
+    for arg in sys.argv:
+        if arg == '--show-desktop':
             showDesktopOnStart = True
+        elif arg == '--mak':
+            setToGoMAK = True
+        elif arg == '--path':
+            setToGoPath = True
+        elif arg == '--publish':
+            publishToGoPath = True
+        elif arg == '--silent':
+            silentRun = True
+        else:
+            if setToGoMAK and not toGoMAK:
+                toGoMAK = arg
+            elif setToGoPath and not toGoPath:
+                toGoPath = arg
+
 
     main()

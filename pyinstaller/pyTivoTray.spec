@@ -32,4 +32,5 @@ exe = EXE(pyz,
 app = BUNDLE(exe,
 		  name='pyTivoTray.app',
 		  icon='../UserInterface/res/icon.icns',
-		  bundle_identifier='com.pytivo.pytivotray')
+		  bundle_identifier='com.pytivo.pytivotray',
+          info_plist={'LSUIElement': '1'})

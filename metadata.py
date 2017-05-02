@@ -428,7 +428,7 @@ def from_container(xmldoc):
             'seriesId': 'SeriesId', 'episodeNumber': 'EpisodeNumber',
             'tvRating': 'TvRating', 'displayMajorNumber': 'SourceChannel',
             'callsign': 'SourceStation', 'showingBits': 'ShowingBits',
-            'mpaaRating': 'MpaaRating'}
+            'mpaaRating': 'MpaaRating', 'recordDate': 'CaptureDate'}
 
     details = xmldoc.getElementsByTagName('Details')[0]
 
