@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/pytivo.iml" filepath="$PROJECT_DIR$/.idea/pytivo.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/pyTivo.iml" filepath="$PROJECT_DIR$/.idea/pyTivo.iml" />
     </modules>
   </component>
 </project>
