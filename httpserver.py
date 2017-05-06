@@ -25,11 +25,11 @@ if getattr(sys, 'frozen', False):
 
 SERVER_INFO = """<?xml version="1.0" encoding="utf-8"?>
 <TiVoServer>
-<Version>1.6</Version>
+<Version>1.6.0</Version>
 <InternalName>pyTivo</InternalName>
-<InternalVersion>1.0</InternalVersion>
+<InternalVersion>pyTivo Desktop</InternalVersion>
 <Organization>pyTivo Developers</Organization>
-<Comment>http://pytivo.sf.net/</Comment>
+<Comment>http://www.pyTivoDesktop.com/</Comment>
 </TiVoServer>"""
 
 VIDEO_FORMATS = """<?xml version="1.0" encoding="utf-8"?>
