@@ -8,6 +8,8 @@ import thread
 import time
 import urllib
 import zlib
+import json
+import subprocess
 from UserDict import DictMixin
 from datetime import datetime, timedelta
 from xml.sax.saxutils import escape
@@ -47,6 +49,8 @@ EXTENSIONS = """.tivo .mpg .avi .wmv .mov .flv .f4v .vob .mp4 .m4v .mkv
 LIKELYTS = """.ts .tp .trp .3g2 .3gp .3gp2 .3gpp .m2t .m2ts .mts .mp4
 .m4v .flv .mkv .mov .wtv .dvr-ms .webm""".split()
 
+status = {} # Global variable to track uploads
+
 use_extensions = True
 try:
     assert(config.get_bin('ffmpeg'))
@@ -76,22 +80,79 @@ class Video(Plugin):
         else:
             return transcode.supported_format(full_path)
 
+    def GetActiveTransferCount(self, handler, query):
+        global status
+        json_config = {}
+        count = 0
+        for tivo in status:
+            for file in status[tivo]:
+                if status[tivo][file]['active']:
+                    count += 1
+
+        json_config['count'] = count
+        handler.send_json(json.dumps(json_config))
+
+    def GetTransferStatus(selfself, handler, query):
+        global status
+        handler.send_json(json.dumps(status))
+
+    def cleanup_status(self):
+        global status
+
+        now = time.time()
+        for tivo in status.keys():
+            for file in status[tivo].keys():
+                if not status[tivo][file]['active']:
+                    elapsed = now - status[tivo][file]['end']
+                    if elapsed >= 86400: # 86400 = one day
+                        del status[tivo][file]
+
+            if len(status[tivo]) < 1:
+                del status[tivo]
+
+
     def send_file(self, handler, path, query):
+        global status
+
+        self.cleanup_status() # Keep status object from getting too big
+
         mime = 'video/x-tivo-mpeg'
         tsn = handler.headers.getheader('tsn', '')
+
         try:
             assert(tsn)
             tivo_name = config.tivos[tsn].get('name', tsn)
         except:
             tivo_name = handler.address_string()
 
-        is_tivo_file = (path[-5:].lower() == '.tivo')
+        if not tivo_name in status:
+            status[tivo_name] = {}
+
+        is_tivo_file = False
+        tivo_header_size = 0
+        is_tivo_ts = False
+
+        f = open(unicode(path, 'utf-8'), 'rb')
+        tivo_header = bytearray(f.read(16))
+        if tivo_header[0:4].decode("utf-8") == 'TiVo':
+            is_tivo_file = True
+            try:
+                if (tivo_header[7] & 0x20 != 0):
+                    is_tivo_ts = True
+            except Exception, msg:
+                test = 0
+            tivo_header_size = struct.unpack_from('>L', tivo_header, 10)[0]
+        f.close()
+
+        tivo_mak = config.get_tsn('tivo_mak', tsn)
+        has_tivolibre = bool(config.get_bin('tivolibre'))
+        has_tivodecode = bool(config.get_bin('tivodecode'))
 
         if 'Format' in query:
             mime = query['Format'][0]
 
-        needs_tivodecode = (is_tivo_file and mime == 'video/mpeg')
-        compatible = (not needs_tivodecode and
+        needs_converion = (((is_tivo_file and is_tivo_ts) or (is_tivo_file and not has_tivolibre)) and mime == 'video/mpeg')
+        compatible = (not needs_converion and
                       transcode.tivo_compatible(path, tsn, mime)[0])
 
         try:  # "bytes=XXX-"
@@ -99,15 +160,18 @@ class Video(Plugin):
         except:
             offset = 0
 
-        if needs_tivodecode:
-            valid = bool(config.get_bin('tivodecode') and
-                         config.get_server('tivo_mak'))
+        if needs_converion:
+            valid = bool((has_tivodecode or has_tivolibre) and tivo_mak)
         else:
             valid = True
 
         if valid and offset:
             valid = ((compatible and offset < os.path.getsize(path)) or
                      (not compatible and transcode.is_resumable(path, offset)))
+
+            if status[tivo_name][path]:
+                valid = (offset != status[tivo_name][path]['offset']) # Don't let the TiVo loop over and over in the same spot
+                status[tivo_name][path]['error'] = 'Repeat offset call'
 
         #faking = (mime in ['video/x-tivo-mpeg-ts', 'video/x-tivo-mpeg'] and
         faking = (mime == 'video/x-tivo-mpeg' and
@@ -116,9 +180,10 @@ class Video(Plugin):
         thead = ''
         if faking:
             thead = self.tivo_header(tsn, path, mime)
+
+        size = os.path.getsize(fname) + len(thead)
         if compatible:
-            size = os.path.getsize(fname) + len(thead)
-            handler.send_response(200)
+            handler.send_response(206)
             handler.send_header('Content-Length', size - offset)
             handler.send_header('Content-Range', 'bytes %d-%d/%d' % 
                                 (offset, size - offset - 1, size))
@@ -130,50 +195,111 @@ class Video(Plugin):
 
         logger.info('[%s] Start sending "%s" to %s' %
                     (time.strftime('%d/%b/%Y %H:%M:%S'), fname, tivo_name))
-        start = time.time()
-        count = 0
 
         if valid:
+            start_time = time.time()
+            last_interval = start_time
+            now = start_time
+            count = 0
+            output = 0
+
+            if not path in status[tivo_name]:
+                status[tivo_name][path] = {'active': True, 'decrypting': False, 'transcoding': False, 'offset': offset,
+                                     'start': start_time, 'end': start_time, 'rate': 0, 'size': size, 'output': 0, 'error': '' }
+            else:
+                status[tivo_name][path]['active'] = True
+                status[tivo_name][path]['offset'] = offset
+
             if compatible:
-                if faking and not offset:
-                    handler.wfile.write(thead)
                 logger.debug('"%s" is tivo compatible' % fname)
                 f = open(fname, 'rb')
+                tivolibre = None
+                if not offset:
+                    if faking:
+                        handler.wfile.write(thead)
+                        count += len(thead)
+                        output += len(thead)
+                    elif tivo_header_size > 0:
+                        block = f.read(tivo_header_size)
+                        handler.wfile.write(block)
+                        count += len(block)
+                        output += len(block)
                 try:
+                    if is_tivo_file and has_tivolibre:
+                        status[tivo_name][path]['decrypting'] = True
+
+                        f.close()
+                        tivolibre_path = config.get_bin('tivolibre')
+                        tcmd = [tivolibre_path, '-m', tivo_mak, '-i', fname]
+                        tivolibre = subprocess.Popen(tcmd, stdout=subprocess.PIPE, bufsize=(512 * 1024))
+                        f = tivolibre.stdout
+
                     if offset:
+                        if tivolibre:
+                            raise Exception('tivolibre does not support offset')
                         offset -= len(thead)
                         f.seek(offset)
+
                     while True:
                         block = f.read(512 * 1024)
                         if not block:
                             break
                         handler.wfile.write(block)
                         count += len(block)
+                        output += len(block)
+
+                        now = time.time()
+                        elapsed = now - last_interval
+                        if elapsed >= 1:
+                            status[tivo_name][path]['rate'] = (count * 8.0) / elapsed
+                            status[tivo_name][path]['output'] += count
+                            count = 0
+                            last_interval = now
+
+                    if tivolibre:
+                        tivolibre.wait()
+
                 except Exception, msg:
+                    status[tivo_name][path]['error'] = str(msg)
+                    if tivolibre:
+                        tivolibre.kill()
+                        tivolibre.wait()
+
                     logger.info(msg)
+
                 f.close()
             else:
+                status[tivo_name][path]['transcoding'] = True
                 logger.debug('"%s" is not tivo compatible' % fname)
                 if offset:
-                    count = transcode.resume_transfer(path, handler.wfile, 
-                                                      offset)
+                    count = transcode.resume_transfer(path, handler.wfile,
+                                                      offset, status[tivo_name][path])
                 else:
-                    count = transcode.transcode(False, path, handler.wfile,
-                                                tsn, mime, thead)
+                    count = transcode.transcode(False, path, handler.wfile, status[tivo_name][path],
+                                                is_tivo_file, tsn, mime, thead)
+
+            end_time = time.time()
+            elapsed = end_time - status[tivo_name][path]['start']
+            rate = count * 8.0 / elapsed
+
+            status[tivo_name][path]['active'] = False
+            status[tivo_name][path]['end'] = end_time
+            status[tivo_name][path]['rate'] = rate
+
+            logger.info('[%s] Done sending "%s" to %s, %d bytes, %.2f Mb/s' %
+                        (time.strftime('%d/%b/%Y %H:%M:%S'), fname,
+                         tivo_name, count, rate*1024*1024))
+
+        else:
+            logger.info('Invalid file "%s" requested by %s' % fname, tivo_name)
+
         try:
             if not compatible:
-                 handler.wfile.write('0\r\n\r\n')
+                handler.wfile.write('0\r\n\r\n')
             handler.wfile.flush()
         except Exception, msg:
             logger.info(msg)
 
-        mega_elapsed = (time.time() - start) * 1024 * 1024
-        if mega_elapsed < 1:
-            mega_elapsed = 1
-        rate = count * 8.0 / mega_elapsed
-        logger.info('[%s] Done sending "%s" to %s, %d bytes, %.2f Mb/s' %
-                    (time.strftime('%d/%b/%Y %H:%M:%S'), fname, 
-                     tivo_name, count, rate))
 
     def __duration(self, full_path):
         return transcode.video_info(full_path)['millisecs']
@@ -242,7 +368,7 @@ class Video(Plugin):
                 transcode_options = []
             else:
                 transcode_options = transcode.transcode(True, full_path,
-                                                        '', tsn, mime)
+                                                        '', None, False, tsn, mime)
             data['vHost'] = (
                 ['TRANSCODE=%s, %s' % (['YES', 'NO'][compatible], reason)] +
                 ['SOURCE INFO: '] +
@@ -457,7 +583,7 @@ class VideoDetails(DictMixin):
     def __setitem__(self, key, value):
         self.d[key] = value
 
-    def __delitem__(self):
+    def __delitem__(self, key):
         del self.d[key]
 
     def keys(self):

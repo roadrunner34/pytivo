@@ -249,6 +249,20 @@ class ToGo(Plugin):
                     else:
                         json_config[SeriesID][EpisodeID]['isSuggestion'] = False
 
+                    if tag_data(item, 'Details/CopyProtected') == 'Yes':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'protected'
+                    elif tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:expires-soon-recording':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'expiring'
+                    elif tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:expired-recording':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'expired'
+                    elif tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:save-until-i-delete-recording':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'kuid'
+                    elif tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:suggestion-recording':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'suggestion'
+                    elif tag_data(item, 'Links/CustomIcon/Url') == 'urn:tivo:image:in-progress-recording':
+                        json_config[SeriesID][EpisodeID]['icon'] = 'inprogress'
+                    else:
+                        json_config[SeriesID][EpisodeID]['icon'] = 'normal'
 
                     url = urlparse.urljoin(baseurl, json_config[SeriesID][EpisodeID]['url'])
                     json_config[SeriesID][EpisodeID]['url'] = url
@@ -282,6 +296,15 @@ class ToGo(Plugin):
                 json_config['urls'] = []
                 for url in queue[tivoIP]:
                     json_config['urls'].append(url)
+
+        handler.send_json(json.dumps(json_config))
+
+    def GetTotalQueueCount(self, handler, query):
+        json_config = {}
+        json_config['count'] = 0
+
+        for tivoIP in queue:
+            json_config['count'] += len(queue[tivoIP])
 
         handler.send_json(json.dumps(json_config))
 
@@ -488,7 +511,7 @@ class ToGo(Plugin):
 
                     sortable = config.get_server('togo_sortable_names', False)
 
-                    if sortable:
+                    if sortable == True:
                         fileName += ' - '
                         fileName += recordDate.strftime('%Y-%m-%d')
 
@@ -604,10 +627,11 @@ class ToGo(Plugin):
                 fname = fname.encode('cp1252')
 
             decoder_path = config.get_bin('tivodecode')
+            tcmd = [decoder_path, '-m', mak, '-o', fname, '-']
             if has_tivolibre:
                 decoder_path = config.get_bin('tivolibre')
+                tcmd = [decoder_path, '-m', mak, '-o', fname]
 
-            tcmd = [decoder_path, '-m', mak, '-o', fname, '-']
             tivodecode = subprocess.Popen(tcmd, stdin=subprocess.PIPE,
                                           bufsize=(512 * 1024))
             f = tivodecode.stdin
@@ -729,6 +753,22 @@ class ToGo(Plugin):
 
         handler.redir(TRANS_STOP % unquote(theurl))
 
+    def remove_from_queue(self, url, tivoIP):
+        if url in status:
+            if status[url]['running']:
+                status[url]['running'] = False
+            else:
+                del status[url]
+
+                if tivoIP in queue:
+                    if url in queue[tivoIP]:
+                        queue[tivoIP].remove(url)
+
+                        logger.info('[%s] Removed "%s" from queue' %
+                                    (time.strftime('%d/%b/%Y %H:%M:%S'),
+                                     unquote(url)))
+
+
     def Unqueue(self, handler, query):
         theurl = ''
 
@@ -737,18 +777,12 @@ class ToGo(Plugin):
             if 'TiVo' in query:
                 tivoIP = query['TiVo'][0]
 
-                if theurl in status:
-                    if status[theurl]['running']:
-                        status[theurl]['running'] = False
-                    else:
-                        del status[theurl]
-
-                        if tivoIP in queue:
-                            if theurl in queue[tivoIP]:
-                                queue[tivoIP].remove(theurl)
-
-                                logger.info('[%s] Removed "%s" from queue' %
-                                            (time.strftime('%d/%b/%Y %H:%M:%S'),
-                                             unquote(theurl)))
+                self.remove_from_queue(theurl, tivoIP)
 
         handler.redir(UNQUEUE % unquote(theurl))
+
+
+    def UnqueueAll(self, handler, query):
+        for tivoIP in queue:
+            for url in queue[tivoIP]:
+                self.remove_from_queue(url, tivoIP)

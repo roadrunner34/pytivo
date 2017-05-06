@@ -53,7 +53,7 @@ def debug(msg):
                 msg = msg.decode('cp1252')
     logger.debug(msg)
 
-def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
+def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', mime='', thead=''):
     vcodec = select_videocodec(inFile, tsn, mime)
 
     settings = select_buffsize(tsn) + vcodec
@@ -85,10 +85,18 @@ def transcode(isQuery, inFile, outFile, tsn='', mime='', thead=''):
     if mswindows:
         fname = fname.encode('cp1252')
 
-    if inFile[-5:].lower() == '.tivo':
-        tivodecode_path = config.get_bin('tivodecode')
+    if isTivoFile:
+        if status:
+            status['decrypting'] = True
+
         tivo_mak = config.get_server('tivo_mak')
+        tivodecode_path = config.get_bin('tivodecode')
         tcmd = [tivodecode_path, '-m', tivo_mak, fname]
+
+        if bool(config.get_bin('tivolibre')):
+            decoder_path = config.get_bin('tivolibre')
+            tcmd = [tivodecode_path, '-m', tivo_mak, '-i', fname]
+
         tivodecode = subprocess.Popen(tcmd, stdout=subprocess.PIPE,
                                       bufsize=(512 * 1024))
         if tivo_compatible(inFile, tsn)[0]:
@@ -125,12 +133,16 @@ def is_resumable(inFile, offset):
             kill(proc['process'])
     return False
 
-def resume_transfer(inFile, outFile, offset):
+def resume_transfer(inFile, outFile, offset, status=None):
     proc = ffmpeg_procs[inFile]
     offset -= proc['start']
     count = 0
+    output = 0
 
     try:
+        start_time = time.time()
+        last_interval = start_time
+        now = start_time
         for block in proc['blocks']:
             length = len(block)
             if offset < length:
@@ -140,16 +152,27 @@ def resume_transfer(inFile, outFile, offset):
                 outFile.write(block)
                 outFile.write('\r\n')
                 count += len(block)
+                output += len(block)
+
+                now = time.time()
+                elapsed = now - last_interval
+                if elapsed >= 1:
+                    status['rate'] = (count * 8.0) / elapsed
+                    status['output'] += count
+                    count = 0
+                    last_interval = now
+
             offset -= length
         outFile.flush()
     except Exception, msg:
+        status['error'] = str(msg)
         logger.info(msg)
-        return count
+        return output
 
     proc['start'] = proc['end']
     proc['blocks'] = []
 
-    return count + transfer_blocks(inFile, outFile)
+    return output + transfer_blocks(inFile, outFile)
 
 def transfer_blocks(inFile, outFile):
     proc = ffmpeg_procs[inFile]

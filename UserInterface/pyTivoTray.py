@@ -8,10 +8,12 @@ import webbrowser
 import ConfigParser
 import urllib2
 import socket
+import json
 from threading import Timer
 from Icons import TrayIcon
 
-version = [1, 5, 15]
+varsionString = "1.5.16"
+version = varsionString.split('.')
 
 showDesktopOnStart = False
 setToGoMAK = False
@@ -153,6 +155,35 @@ def PublishToGoPath(path):
     config.set(folderName, 'type', 'video')
     SaveConfigFile(config)
 
+def GetDownloadQueueCount():
+    try:
+        response = json.load(urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=GetTotalQueueCount&Container=ToGo'))
+
+        if 'count' in response:
+            return int(response['count'])
+        else:
+            return 0
+    except:
+        return 0
+
+def GetUploadQueueCount():
+    try:
+        response = json.load(urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=GetActiveTransferCount'))
+
+        if 'count' in response:
+            return int(response['count'])
+        else:
+            return 0
+    except:
+        return 0
+
+def CancelAllTransfers():
+    try:
+        urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=UnqueueAll&Container=ToGo')
+    except:
+        pass
+
+
 class pyTivoTray(wx.TaskBarIcon):
     def __init__(self, frame):
         if isWindows:
@@ -249,13 +280,13 @@ class pyTivoTray(wx.TaskBarIcon):
             latest = response.split('.')
 
             newer = False
-            if int(latest[0]) > version[0]:
+            if int(latest[0]) > int(version[0]):
                 newer = True
-            elif int(latest[0]) == version[0]:
-                if int(latest[1]) > version[1]:
+            elif int(latest[0]) == int(version[0]):
+                if int(latest[1]) > int(version[1]):
                     newer = True
-                elif int(latest[1]) == version[1]:
-                    if int(latest[2]) > version[2]:
+                elif int(latest[1]) == int(version[1]):
+                    if int(latest[2]) > int(version[2]):
                         newer = True
 
             if newer:
@@ -265,8 +296,8 @@ class pyTivoTray(wx.TaskBarIcon):
                                        'A new version of pyTivo Desktop is available',
                                        'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
 
-                currentText = 'Current version: ' + str(version[0]) + '.' + str(version[1]) + '.' + str(version[2])
-                newText = 'Current version: ' + response
+                currentText = 'Current version: ' + version[0] + '.' + version[1] + '.' + version[2]
+                newText = 'Current version: ' + newVersion
                 extMessageText =  currentText + '\n' + newText + '\n\nWould you like to download it now?'
                 dlg.SetExtendedMessage(extMessageText)
 
@@ -324,8 +355,32 @@ class pyTivoTray(wx.TaskBarIcon):
 
     def StopPyTivoThread(self):
         if self.isPyTivoRunning:
+            uploadCount = GetUploadQueueCount()
+            downloadCount = GetDownloadQueueCount()
+            message = ''
+            if downloadCount > 0 and uploadCount == 0:
+                message = 'There are still %d recordings being downloaded, are you sure you want to stop pyTivo?' % downloadCount
+            elif uploadCount > 0 and downloadCount == 0:
+                message = 'There are still %d videos being uploaded, are you sure you want to stop pyTivo?' % uploadCount
+            elif downloadCount > 0 and uploadCount > 0:
+                message = 'There are still %d recordings being downloaded and %d videos being uploaded, are you sure you want to stop pyTivo?' % (downloadCount, uploadCount)
+
+            if downloadCount > 0 or uploadCount > 0:
+                dlg = wx.MessageDialog(None, message, 'Confirm',
+                                       wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
+
+                stopPyTivo = dlg.ShowModal() == wx.ID_YES
+                dlg.Destroy()
+                if not stopPyTivo:
+                    return False
+                else:
+                    CancelAllTransfers()
+
             self.pyTivoStop.set()
             self.pyTivoThread.join()
+            return True
+
+        return True
 
     def RestartPyTivo(self):
         urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=Restart&Container=Settings').read()
@@ -382,16 +437,15 @@ class pyTivoTray(wx.TaskBarIcon):
         if not exitPyTivo:
             return
 
-        self.StopPyTivoThread()
+        if self.StopPyTivoThread():
+            # Kill version check timer
+            if self.versionCheckTimer != None:
+                if self.versionCheckTimer.is_alive():
+                    self.versionCheckTimer.cancel()
+                    self.versionCheckTimer = None
 
-        # Kill version check timer
-        if self.versionCheckTimer != None:
-            if self.versionCheckTimer.is_alive():
-                self.versionCheckTimer.cancel()
-                self.versionCheckTimer = None
-
-        wx.CallAfter(self.Destroy)
-        self.frame.Close()
+            wx.CallAfter(self.Destroy)
+            self.frame.Close()
 
     def __del__(self):
         if isWindows:

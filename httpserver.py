@@ -58,8 +58,7 @@ class TivoHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
         self.stop = False
         self.restart = False
         self.logger = logging.getLogger('pyTivo')
-        BaseHTTPServer.HTTPServer.__init__(self, server_address,
-                                           RequestHandlerClass)
+        BaseHTTPServer.HTTPServer.__init__(self, server_address, RequestHandlerClass)
         self.daemon_threads = True
 
     def add_container(self, name, settings):
@@ -91,8 +90,15 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.server_version = 'pyTivo/1.0'
         self.protocol_version = 'HTTP/1.1'
         self.sys_version = ''
-        BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request,
-            client_address, server)
+
+        try:
+            BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request, client_address, server)
+        except Exception, msg:
+            self.server.logger.info(msg)
+
+    def setup(self):
+        BaseHTTPServer.BaseHTTPRequestHandler.setup(self)
+        self.request.settimeout(60) # This allows pyTivo to die when user selects Stop Transfer on the TiVo
 
     def address_string(self):
         host, port = self.client_address[:2]
@@ -201,6 +207,13 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             elif command == 'QueryServer':
                 self.send_xml(SERVER_INFO)
                 return
+
+            elif command in ('GetActiveTransferCount', 'GetTransferStatus'):
+                plugin = GetPlugin('video')
+                if hasattr(plugin, command):
+                    method = getattr(plugin, command)
+                    method(self, query)
+                    return True
 
             elif command in ('FlushServer', 'ResetServer'):
                 # Does nothing -- included for completeness

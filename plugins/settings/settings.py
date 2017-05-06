@@ -169,7 +169,7 @@ class Settings(Plugin):
         for section in config.config.sections():
             if section == 'Server':
                 for name, value in config.config.items(section):
-                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_ts_format', 'togo_decode', 'togo_sortable_names'}:
+                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names'}:
                         try:
                             json_config['Server'][name] = config.config.getboolean(section, name)
                         except ValueError:
