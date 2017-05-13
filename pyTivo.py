@@ -43,7 +43,7 @@ def last_date():
     return time.asctime(time.localtime(lasttime))
 
 def setup(in_service=False):
-    config.init(sys.argv[1:])
+    config.init(sys.argv[1:], in_service)
     config.init_logging()
     sys.excepthook = exceptionLogger
 

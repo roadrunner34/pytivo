@@ -10,6 +10,7 @@ import urllib2
 import urlparse
 import json
 import pytz
+import struct
 from urllib import quote, unquote
 from xml.dom import minidom
 from datetime import datetime
@@ -327,6 +328,9 @@ class ToGo(Plugin):
                 json_config['state'] = state
                 json_config['rate'] = status[url]['rate']
                 json_config['size'] = status[url]['size']
+                json_config['retry'] = status[url]['retry']
+                json_config['maxRetries'] = status[url]['ts_max_retries']
+                json_config['errorCount'] = status[url]['ts_error_count']
 
         handler.send_json(json.dumps(json_config))
 
@@ -605,7 +609,9 @@ class ToGo(Plugin):
 
         auth_handler.add_password('TiVo DVR', url, 'tivo', mak)
         try:
+            ts_format = False
             if status[url]['ts_format'] and config.is_ts_capable(config.tivos_by_ip(tivoIP)):
+                ts_format = True
                 handle = self.tivo_open(url + '&Format=video/x-tivo-mpeg-ts')
             else:
                 handle = self.tivo_open(url)
@@ -621,7 +627,8 @@ class ToGo(Plugin):
 
         has_tivodecode = bool(config.get_bin('tivodecode'))
         has_tivolibre = bool(config.get_bin('tivolibre'))
-        if status[url]['decode'] and (has_tivodecode or has_tivolibre):
+        decode = status[url]['decode'] and (has_tivodecode or has_tivolibre)
+        if decode:
             fname = outfile
             if mswindows:
                 fname = fname.encode('cp1252')
@@ -637,15 +644,58 @@ class ToGo(Plugin):
             f = tivodecode.stdin
         else:
             f = open(outfile, 'wb')
+
+
+        save_txt = status[url]['save']
+
         length = 0
         start_time = time.time()
         last_interval = start_time
         now = start_time
+        retry_download = False
+        sync_loss = False
+        ts_error_mode = config.get_server('togo_ts_error_mode', 'ignore')
         try:
+            # Download just the header first so remaining bytes are packet aligned for TS
+            tivo_header = handle.read(16)
+            length += len(tivo_header)
+            f.write(tivo_header)
+
+            tivo_header_size = struct.unpack_from('>L', tivo_header, 10)[0]
+            output = handle.read(tivo_header_size-16)
+            length += len(output)
+            f.write(output)
+
             while status[url]['running']:
-                output = handle.read(1024000)
+                output = handle.read(524144) # Size needs to be divisible by 188
                 if not output:
                     break
+
+                if ts_format:
+                    cur_byte = 0
+                    while cur_byte < len(output):
+                        if struct.unpack_from('>B', output, cur_byte)[0] != 0x47:
+                            sync_loss = True
+                            status[url]['ts_error_count'] += 1
+
+                        cur_byte += 188
+
+                    if sync_loss and ts_error_mode !=  'ignore':
+                        if status[url]['retry'] < status[url]['ts_max_retries']:
+                            retry_download = True
+
+                        if ts_error_mode ==  'best':
+                            if status[url]['best_error_count'] > 0:
+                                if status[url]['ts_error_count'] >= status[url]['best_error_count']:
+                                    status[url]['running'] = False
+                                    status[url]['error'] = 'Transport stream error detected'
+                                    break
+
+                        elif ts_error_mode ==  'reject':
+                            status[url]['running'] = False
+                            status[url]['error'] = 'Transport stream error detected'
+                            break
+
                 length += len(output)
                 f.write(output)
                 now = time.time()
@@ -655,15 +705,20 @@ class ToGo(Plugin):
                     status[url]['size'] += length
                     length = 0
                     last_interval = now
+
             if status[url]['running']:
-                status[url]['finished'] = True
+                if not sync_loss:
+                    status[url]['error'] = ''
+
         except Exception, msg:
+            status[url]['error'] = 'Error downloading file'
             status[url]['running'] = False
             logger.info(msg)
+
         handle.close()
         f.close()
 
-        if status[url]['decode']:
+        if decode:
             while tivodecode.poll() is None:
                 time.sleep(1)
 
@@ -680,7 +735,30 @@ class ToGo(Plugin):
 
             status[url]['running'] = False
 
-            if status[url]['save'] and os.path.isfile(outfile):
+            if ts_error_mode == 'best' and os.path.isfile(status[url]['best_file']):
+                os.remove(status[url]['best_file'])
+                if os.path.isfile(status[url]['best_file'] + '.txt'):
+                    os.remove(status[url]['best_file'] + '.txt')
+
+            if sync_loss:
+                outfile_name = outfile.split('.')
+                count = 1
+                while True:
+                    outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + ')')
+                    if count > 1:
+                        outfile_name.insert(-1, ' (' + str(count) + ')')
+
+                    outfile_name.insert(-1, '.')
+                    new_outfile = ''.join(outfile_name)
+                    if os.path.isfile(new_outfile):
+                        count += 1
+                        continue
+
+                    os.rename(outfile, new_outfile)
+                    outfile = new_outfile
+                    break
+
+            if save_txt and os.path.isfile(outfile):
                 meta = basic_meta[url]
                 try:
                     handle = self.tivo_open(details_urls[url])
@@ -692,12 +770,35 @@ class ToGo(Plugin):
                 metadata.dump(metafile, meta)
                 metafile.close()
 
+            status[url]['best_file'] = outfile
+            status[url]['best_error_count'] = status[url]['ts_error_count']
+
+            if retry_download:
+                status[url]['rate'] = 0
+                status[url]['size'] = 0
+                status[url]['queued'] = True
+                status[url]['retry'] += 1
+                status[url]['ts_error_count'] = 0
+                queue[tivoIP].insert(1, url)
+            else:
+                status[url]['finished'] = True
         else:
             os.remove(outfile)
             logger.info('[%s] Transfer of "%s" from %s aborted' %
                         (time.strftime('%d/%b/%Y %H:%M:%S'), outfile,
                          tivo_name))
-            del status[url]
+
+            if retry_download:
+                status[url]['rate'] = 0
+                status[url]['size'] = 0
+                status[url]['queued'] = True
+                status[url]['retry'] += 1
+                status[url]['ts_error_count'] = 0
+                queue[tivoIP].insert(1, url)
+            else:
+                status[url]['finished'] = True
+                #del status[url]
+
 
     def process_queue(self, tivoIP, mak, togo_path):
         PreventComputerFromSleeping(True)
@@ -726,8 +827,9 @@ class ToGo(Plugin):
             for theurl in urls:
                 status[theurl] = {'running': False, 'error': '', 'rate': 0,
                                   'queued': True, 'size': 0, 'finished': False,
-                                  'decode': decode, 'save': save,
-                                  'ts_format': ts_format}
+                                  'decode': decode, 'save': save, 'ts_format': ts_format,
+                                  'retry': 0, 'ts_max_retries': int(config.get_server('togo_ts_max_retries', 0)),
+                                  'ts_error_count': 0, 'best_file': '', 'best_error_count': 0}
                 if tivoIP in queue:
                     queue[tivoIP].append(theurl)
                 else:

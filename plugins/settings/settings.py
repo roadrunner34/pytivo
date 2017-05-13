@@ -169,7 +169,7 @@ class Settings(Plugin):
         for section in config.config.sections():
             if section == 'Server':
                 for name, value in config.config.items(section):
-                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names'}:
+                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names', 'tivolibre_upload'}:
                         try:
                             json_config['Server'][name] = config.config.getboolean(section, name)
                         except ValueError:
@@ -213,10 +213,6 @@ class Settings(Plugin):
                 if 'dontbrowse' in part.opts:
                     continue
 
-                if sys.platform == 'darwin':
-                    if part.fstype != 'hfs':
-                        continue
-
                 json_config[index] = {}
                 json_config[index]['mountpoint'] = part.mountpoint
 
@@ -230,6 +226,16 @@ class Settings(Plugin):
                 json_config[index] = {}
                 json_config[index]['mountpoint'] = '/Volumes/' + fname
                 json_config[index]['name'] = fname
+        elif sys.platform == 'linux2':
+            print psutil.disk_partitions(all=True)
+            for index, part in enumerate(psutil.disk_partitions(all=True)):
+                if not part.fstype in ['msdos', 'ntfs', 'ext2', 'ext3', 'ext4']:
+                    continue
+
+                json_config[index] = {}
+                json_config[index]['mountpoint'] = part.mountpoint
+                json_config[index]['name'] = part.device
+
 
         handler.send_json(json.dumps(json_config))
 
@@ -250,7 +256,6 @@ class Settings(Plugin):
         return result
 
     def GetFileList(self, handler, query):
-        import ctypes
         json_config = {}
 
         basepath = '/'
@@ -279,3 +284,31 @@ class Settings(Plugin):
             print "Error"
 
         handler.send_json(json.dumps(json_config))
+
+
+    def GetLogText(self, handler, query):
+        if config.isRunningInService():
+            programdataDir = os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo')
+            if not os.path.exists(programdataDir):
+                os.makedirs(programdataDir)
+
+            logPath = os.path.join(programdataDir, 'log.txt')
+        else:
+            if 'APPDATA' in os.environ:
+                appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
+                if not os.path.exists(appdataDir):
+                    os.makedirs(appdataDir)
+
+                logPath = os.path.join(appdataDir, 'log.txt')
+            else:
+                if sys.platform == 'darwin':
+                    logDir = os.path.dirname(os.path.dirname(
+                        os.path.dirname(os.path.dirname(sys.executable))))  # pyTivo tray is inside a .app bundle
+                else:
+                    logDir = os.path.dirname(sys.executable)
+
+                logPath = os.path.join(logDir, 'log.txt')
+
+        with open(logPath, 'r') as logFile:
+            handler.send_html(logFile.read())
+

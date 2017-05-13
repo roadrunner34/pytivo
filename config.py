@@ -21,18 +21,22 @@ class Bdict(dict):
     def getboolean(self, x):
         return self.get(x, 'False').lower() in ('1', 'yes', 'true', 'on')
 
-def init(argv):
+def init(argv, in_service=False):
     global tivos
     global guid
     global config_files
     global tivos_found
+    global running_in_service
 
     tivos = {}
     guid = uuid.uuid4()
     tivos_found = False
+    running_in_service = in_service
 
-    if 'APPDATA' in os.environ:
-        config_files = ['/etc/pyTivo.conf', os.path.join(SCRIPTDIR, 'pyTivo.conf'), os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')]
+    if in_service:
+        config_files = [os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo', 'pyTivo.conf')]
+    elif 'APPDATA' in os.environ:
+        config_files = [os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')]
     else:
         config_files = ['/etc/pyTivo.conf', os.path.join(SCRIPTDIR, 'pyTivo.conf')]
 
@@ -96,6 +100,9 @@ def get_server(name, default=None):
 
 def getGUID():
     return str(guid)
+
+def isRunningInService():
+    return running_in_service
 
 def get_ip(tsn=None):
     try:

@@ -12,24 +12,19 @@ import json
 from threading import Timer
 from Icons import TrayIcon
 
-versionString = '1.6.0'
+versionString = '1.6.2'
 version = versionString.split('.')
 
 showDesktopOnStart = False
-setToGoMAK = False
-toGoMAK = ''
-setToGoPath = False
-toGoPath = ''
-publishToGoPath = False
-silentRun = False
-
-
 isWindows = platform.system() == 'Windows'
 isMacOSX = platform.system() == 'Darwin'
 if isWindows:
     from win32event import CreateMutex
     from win32api import GetLastError, CloseHandle
     from winerror import ERROR_ALREADY_EXISTS
+    import win32service
+    import win32serviceutil
+
 
 def CreateMenuItem(menu, label, func):
     item = wx.MenuItem(menu, -1, label)
@@ -43,8 +38,16 @@ def LoadConfigFile():
 
     # load config file
     configFile = ''
-    if 'APPDATA' in os.environ:
-        configFile = os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')
+    if isWindows:
+        status = None
+        try:
+            status = win32serviceutil.QueryServiceStatus('pyTivo')
+        except:
+            if 'APPDATA' in os.environ:
+                configFile = os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')
+        else:
+            if 'ALLUSERSPROFILE' in os.environ:
+                configFile = os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo', 'pyTivo.conf')
 
     if not os.path.isfile(configFile):
         if getattr(sys, 'frozen', False):
@@ -65,14 +68,26 @@ def LoadConfigFile():
 
 
 def SaveConfigFile(config):
-    # always save to appdata if we can
-    if os.environ['APPDATA']:
-        appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
-        if not os.path.exists(appdataDir):
-            os.makedirs(appdataDir)
+    configFile = ''
+    if isWindows:
+        status = None
+        try:
+            status = win32serviceutil.QueryServiceStatus('pyTivo')
+        except:
+            appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
+            if not os.path.exists(appdataDir):
+                os.makedirs(appdataDir)
 
-        configFile = os.path.join(appdataDir, 'pyTivo.conf')
-    else:
+            configFile = os.path.join(appdataDir, 'pyTivo.conf')
+        else:
+            appdataDir = os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo')
+            if not os.path.exists(appdataDir):
+                os.makedirs(appdataDir)
+
+            configFile = os.path.join(appdataDir, 'pyTivo.conf')
+
+
+    if not configFile:
         if getattr(sys, 'frozen', False):
             if isMacOSX:
                 configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))) # pyTivo tray is inside a .app bundle
@@ -80,6 +95,7 @@ def SaveConfigFile(config):
                 configDir = os.path.dirname(sys.executable)
         else:
             configDir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+
         configFile = os.path.join(configDir, 'pyTivo.conf')
 
     file = open(configFile, 'w')
@@ -118,43 +134,6 @@ def SetUpdateCheckInterval(days):
 def ShowWebUI():
     webbrowser.open('http://localhost:' + GetPort(), new=0, autoraise=True)
 
-
-def SetTiVoMAK(mak):
-    config = LoadConfigFile()
-    if not config.has_section('Server'):
-        config.add_section('Server')
-
-    config.set('Server', 'tivo_mak', mak)
-    SaveConfigFile(config)
-
-def SetToGoPath(path):
-    config = LoadConfigFile()
-    if not config.has_section('Server'):
-        config.add_section('Server')
-
-    config.set('Server', 'togo_path', path)
-    SaveConfigFile(config)
-
-def PublishToGoPath(path):
-    config = LoadConfigFile()
-    folderName = os.path.basename(path)
-
-    count = 2
-    while True:
-        if config.has_section(folderName):
-            if config.get(folderName, 'path') != path:
-                folderName = os.path.basename(path) + ' %d' % count
-                count += 1
-                continue
-        break
-
-    if not config.has_section(folderName):
-        config.add_section(folderName)
-
-    config.set(folderName, 'path', path)
-    config.set(folderName, 'type', 'video')
-    SaveConfigFile(config)
-
 def GetDownloadQueueCount():
     try:
         response = json.load(urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=GetTotalQueueCount&Container=ToGo'))
@@ -177,11 +156,37 @@ def GetUploadQueueCount():
     except:
         return 0
 
+
 def CancelAllTransfers():
     try:
         urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=UnqueueAll&Container=ToGo')
     except:
         pass
+
+
+def CheckUserIsAdmin():
+    if isWindows:
+        import ctypes
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            print 'Admin check failed, assuming not an admin.'
+            return False
+
+    return False
+
+
+def RestartAsAdmin():
+    if isWindows:
+        import ctypes
+        params = ''
+        if showDesktopOnStart:
+            params = '--show-desktop'
+
+        if getattr(sys, 'frozen', False):
+            ctypes.windll.shell32.ShellExecuteW(None, u'runas', unicode(sys.executable), unicode(params), None, 1)
+        else:
+            ctypes.windll.shell32.ShellExecuteW(None, u'runas', unicode(sys.executable), unicode('\"'+ __file__+'\" ' + params), None, 1)
 
 
 class pyTivoTray(wx.TaskBarIcon):
@@ -190,26 +195,40 @@ class pyTivoTray(wx.TaskBarIcon):
             self.mutexName = 'pyTivoTray_{BF213038-4019-49C0-A0AD-9D4419852647}'
             self.mutex = CreateMutex(None, False, self.mutexName)
             if (GetLastError() == ERROR_ALREADY_EXISTS):
+                print 'pyTivoTray already running'
                 sys.exit()
 
-        if setToGoMAK:
-            SetTiVoMAK(toGoMAK)
+        self.isPyTivoService = False
+        if isWindows:
+            status = None
+            try:
+                status = win32serviceutil.QueryServiceStatus('pyTivo')
+            except:
+                pass # Service not installed
+            else:
+                self.isPyTivoService = True
+                if not CheckUserIsAdmin():
+                    print 'Must be run elevated to control service'
 
-        if setToGoPath:
-            SetToGoPath(toGoPath)
-            if publishToGoPath:
-                PublishToGoPath(toGoPath)
+                    if self.mutex:
+                        CloseHandle(self.mutex)
 
-        if silentRun: # Just want to set the MAK and ToGo Paths then exit
-            sys.exit()
+                    RestartAsAdmin()
+                    sys.exit()
 
         self.frame = frame
         super(pyTivoTray, self).__init__()
+
         self.isPyTivoRunning = False
         self.UpdateIcon()
         self.versionCheckTimer = None
-        self.pyTivoThread = None
-        self.StartPyTivoThread()
+
+        if self.isPyTivoService:
+            self.StartPyTivoService()
+            self.StartPyTivoServiceMonitorThread()
+        else:
+            self.pyTivoThread = None
+            self.StartPyTivoThread()
 
         self.Bind(wx.EVT_TASKBAR_LEFT_DCLICK, self.OnOpenDesktop)
         self.CheckVersion(True)
@@ -238,12 +257,14 @@ class pyTivoTray(wx.TaskBarIcon):
         CreateMenuItem(menu, 'Exit', self.OnExit)
         return menu
 
+
     def UpdateIcon(self):
         icon = TrayIcon()
         if self.isPyTivoRunning:
             self.SetIcon(icon.GetRunning(), 'pyTivo\n(running)')
         else:
             self.SetIcon(icon.GetStopped(), 'pyTivo\n(stopped)')
+
 
     def OpenDesktop(self):
         if not self.isPyTivoRunning:
@@ -263,9 +284,46 @@ class pyTivoTray(wx.TaskBarIcon):
             pyTivoDesktopProcess = subprocess.Popen(
                 os.path.join(parentDirectory, 'build\desktop\pyTivoDesktop  /setport/') + GetPort(), shell=True)
 
+
     def CheckVersion(self, silentCheck):
         self.checkVersionThread = threading.Thread(target=self.CheckVersionFunc, args=(silentCheck,))
         self.checkVersionThread.start()
+
+
+    def PromptVersionUpdate(self, updateAvailable, newVersion, error):
+        if updateAvailable:
+            dlg = wx.MessageDialog(None,
+                                   'A new version of pyTivo Desktop is available',
+                                   'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
+
+            currentText = 'Current version: ' + version[0] + '.' + version[1] + '.' + version[2]
+            newText = 'New version: ' + newVersion
+            extMessageText = currentText + '\n' + newText + '\n\nWould you like to download it now?'
+            dlg.SetExtendedMessage(extMessageText)
+
+            doDownload = dlg.ShowModal() == wx.ID_YES
+            dlg.Destroy()
+
+            if doDownload:
+                if isMacOSX:
+                    webbrowser.open('http://www.pytivodesktop.com/mac.html', new=2, autoraise=True)
+                elif isWindows:
+                    webbrowser.open('http://www.pytivodesktop.com/windows.html', new=2, autoraise=True)
+        elif error:
+            dlg = wx.MessageDialog(None,
+                                   'Error contacting server, try again later',
+                                   'Error', wx.OK | wx.ICON_ERROR | wx.CENTRE)
+
+            dlg.ShowModal()
+            dlg.Destroy()
+        else:
+            dlg = wx.MessageDialog(None,
+                                   'Your version of pyTivo Desktop is current',
+                                   'No Update Available', wx.OK | wx.ICON_INFORMATION | wx.CENTRE)
+
+            dlg.ShowModal()
+            dlg.Destroy()
+
 
     def CheckVersionFunc(self, silentCheck):
         isError = False
@@ -291,32 +349,10 @@ class pyTivoTray(wx.TaskBarIcon):
 
             if newer:
                 newVersion = latest[0] + '.' + latest[1] + '.' + latest[2]
-
-                dlg = wx.MessageDialog(None,
-                                       'A new version of pyTivo Desktop is available',
-                                       'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
-
-                currentText = 'Current version: ' + version[0] + '.' + version[1] + '.' + version[2]
-                newText = 'Current version: ' + newVersion
-                extMessageText =  currentText + '\n' + newText + '\n\nWould you like to download it now?'
-                dlg.SetExtendedMessage(extMessageText)
-
-                doDownload = dlg.ShowModal() == wx.ID_YES
-                dlg.Destroy()
-
-                if doDownload:
-                    if isMacOSX:
-                        webbrowser.open('http://www.pytivodesktop.com/mac.html', new=2, autoraise=True)
-                    elif isWindows:
-                        webbrowser.open('http://www.pytivodesktop.com/windows.html', new=2, autoraise=True)
+                wx.CallAfter(self.PromptVersionUpdate, True, newVersion, False)
 
             elif not silentCheck:
-                dlg = wx.MessageDialog(None,
-                                       'Your version of pyTivo Desktop is current',
-                                       'No Update Available', wx.OK | wx.ICON_INFORMATION | wx.CENTRE)
-
-                dlg.ShowModal()
-                dlg.Destroy()
+                wx.CallAfter(self.PromptVersionUpdate, False, '', False)
 
         except urllib2.URLError, e:
             isError = True
@@ -325,12 +361,7 @@ class pyTivoTray(wx.TaskBarIcon):
 
         if isError:
             if not silentCheck:
-                dlg = wx.MessageDialog(None,
-                                       'Error contacting server, try again later',
-                                       'Error', wx.OK | wx.ICON_ERROR | wx.CENTRE)
-
-                dlg.ShowModal()
-                dlg.Destroy()
+                wx.CallAfter(self.PromptVersionUpdate, False, '', True)
 
         # Kill existing timer if it's still active
         if self.versionCheckTimer != None:
@@ -345,7 +376,13 @@ class pyTivoTray(wx.TaskBarIcon):
             self.versionCheckTimer = Timer(float(seconds), self.CheckVersion, args=[True])
             self.versionCheckTimer.start()
 
+
     def StartPyTivoThread(self):
+        if isWindows:
+            if self.isPyTivoService:
+                self.StartPyTivoService()
+                return
+
         if self.isPyTivoRunning or self.pyTivoThread != None:
             return
 
@@ -353,28 +390,55 @@ class pyTivoTray(wx.TaskBarIcon):
         self.pyTivoThread = threading.Thread(target=self.pyTivoThreadFunc)
         self.pyTivoThread.start()
 
+
+    def StartPyTivoService(self):
+        if isWindows:
+            if self.isPyTivoService:
+                try:
+                    status = win32serviceutil.QueryServiceStatus('pyTivo')
+                    if status[1] == win32service.SERVICE_RUNNING:
+                        return
+
+                    win32serviceutil.StartService('pyTivo')
+                except Exception, msg:
+                    pass
+
+
+    def StartPyTivoServiceMonitorThread(self):
+        self.pyTivoServiceMonitorStop = threading.Event()
+        self.pyTivoServiceMonitorThread = threading.Thread(target=self.pyTivoServiceMonitorThreadFunc)
+        self.pyTivoServiceMonitorThread.start()
+
+
+    def ConfirmPyTivoStop(self):
+        uploadCount = GetUploadQueueCount()
+        downloadCount = GetDownloadQueueCount()
+        message = ''
+        if downloadCount > 0 and uploadCount == 0:
+            message = 'There are still %d recordings being downloaded, are you sure you want to stop pyTivo?' % downloadCount
+        elif uploadCount > 0 and downloadCount == 0:
+            message = 'There are still %d videos being uploaded, are you sure you want to stop pyTivo?' % uploadCount
+        elif downloadCount > 0 and uploadCount > 0:
+            message = 'There are still %d recordings being downloaded and %d videos being uploaded, are you sure you want to stop pyTivo?' % (
+            downloadCount, uploadCount)
+
+        if downloadCount > 0 or uploadCount > 0:
+            dlg = wx.MessageDialog(None, message, 'Confirm',
+                                   wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
+
+            stopPyTivo = dlg.ShowModal() == wx.ID_YES
+            dlg.Destroy()
+            return stopPyTivo
+
+        return True
+
+
     def StopPyTivoThread(self):
         if self.isPyTivoRunning:
-            uploadCount = GetUploadQueueCount()
-            downloadCount = GetDownloadQueueCount()
-            message = ''
-            if downloadCount > 0 and uploadCount == 0:
-                message = 'There are still %d recordings being downloaded, are you sure you want to stop pyTivo?' % downloadCount
-            elif uploadCount > 0 and downloadCount == 0:
-                message = 'There are still %d videos being uploaded, are you sure you want to stop pyTivo?' % uploadCount
-            elif downloadCount > 0 and uploadCount > 0:
-                message = 'There are still %d recordings being downloaded and %d videos being uploaded, are you sure you want to stop pyTivo?' % (downloadCount, uploadCount)
-
-            if downloadCount > 0 or uploadCount > 0:
-                dlg = wx.MessageDialog(None, message, 'Confirm',
-                                       wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
-
-                stopPyTivo = dlg.ShowModal() == wx.ID_YES
-                dlg.Destroy()
-                if not stopPyTivo:
-                    return False
-                else:
-                    CancelAllTransfers()
+            if not self.ConfirmPyTivoStop():
+                return False
+            else:
+                CancelAllTransfers()
 
             self.pyTivoStop.set()
             self.pyTivoThread.join()
@@ -382,22 +446,67 @@ class pyTivoTray(wx.TaskBarIcon):
 
         return True
 
+
+    def StopPyTivoService(self):
+        if not isWindows:
+            return False
+
+        try:
+            status = win32serviceutil.QueryServiceStatus('pyTivo')
+            if status[1] != win32service.SERVICE_RUNNING:
+                return True
+        except:
+            return False
+
+        if not self.ConfirmPyTivoStop():
+            return False
+        else:
+            CancelAllTransfers()
+
+        try:
+            win32serviceutil.StopService('pyTivo')
+        except:
+            return False
+
+        return True
+
+
     def RestartPyTivo(self):
+        if isWindows:
+            try:
+                win32serviceutil.RestartService('pyTivo')
+            except:
+                pass
+            else:
+                return
+
         urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=Restart&Container=Settings').read()
+
 
     def pyTivoThreadFunc(self):
         import subprocess
 
-        if getattr(sys, 'frozen', False):
-            if isMacOSX:
-                pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), shell=True)
-            elif isWindows:
-                pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), shell=True)
-            else:
-                return
+        if 'APPDATA' in os.environ:
+            appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
+            if not os.path.exists(appdataDir):
+                os.makedirs(appdataDir)
+
+            logPath = os.path.join(appdataDir, 'log.txt')
         else:
-            pyTivoProcess = subprocess.Popen(
-                'python ' + os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pyTivo.py'), shell=True)
+            if isMacOSX:
+                logDir = os.path.dirname(os.path.dirname(
+                    os.path.dirname(os.path.dirname(sys.executable))))  # pyTivo tray is inside a .app bundle
+            else:
+                logDir = os.path.dirname(sys.executable)
+
+            logPath = os.path.join(logDir, 'log.txt')
+
+        logFile = None
+        if getattr(sys, 'frozen', False):
+            logFile = open(logPath, 'w')
+            pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), stdout=logFile, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, shell=True)
+        else:
+            pyTivoProcess = subprocess.Popen('python \"' + os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pyTivo.py') + '\"', shell=True)
 
         self.isPyTivoRunning = True
         self.UpdateIcon()
@@ -409,43 +518,89 @@ class pyTivoTray(wx.TaskBarIcon):
                 urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=Quit&Container=Settings').read()
                 break
 
+        if logFile != None:
+            logFile.close()
+
         self.isPyTivoRunning = False
         self.pyTivoThread = None
         self.UpdateIcon()
 
+
+    def pyTivoServiceMonitorThreadFunc(self):
+        if isWindows:
+            while True:
+                if (self.pyTivoServiceMonitorStop.isSet()):
+                    break
+
+                try:
+                    status = win32serviceutil.QueryServiceStatus('pyTivo')
+                    self.isPyTivoRunning = status[1] == win32service.SERVICE_RUNNING
+                    self.UpdateIcon()
+                except:
+                    break
+
+                time.sleep(2.0)
+
+
     def OnOpenDesktop(self, event):
         self.OpenDesktop()
+
 
     def OnStartPyTivoThread(self, event):
         self.StartPyTivoThread()
 
+
     def OnStopPyTivoThread(self, event):
+        if isWindows:
+            if self.isPyTivoService:
+                self.StopPyTivoService()
+                return
+
         self.StopPyTivoThread()
+
 
     def OnRestartPyTivo(self, event):
         self.RestartPyTivo()
 
+
     def OnCheckVersion(self, event):
         self.CheckVersion(False)
 
+
     def OnExit(self, event):
-        # Confirm user wants to exit
-        dlg = wx.MessageDialog(None, 'Are you sure you want to exit pyTivo?', 'Confirm',
-                               wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
-        exitPyTivo = dlg.ShowModal() == wx.ID_YES
-        dlg.Destroy()
-        if not exitPyTivo:
-            return
+        if self.isPyTivoRunning:
+            if self.isPyTivoService:
+                # Ask user if they want to keep the pyTivo serivce running
+                dlg = wx.MessageDialog(None, 'Do you want to keep the pyTivo service running?', 'Confirm',
+                                       wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
+                stopPyTivo = dlg.ShowModal() == wx.ID_NO
+                dlg.Destroy()
+                if stopPyTivo:
+                    self.StopPyTivoService()
 
-        if self.StopPyTivoThread():
-            # Kill version check timer
-            if self.versionCheckTimer != None:
-                if self.versionCheckTimer.is_alive():
-                    self.versionCheckTimer.cancel()
-                    self.versionCheckTimer = None
+                self.pyTivoServiceMonitorStop.set()
+                self.pyTivoServiceMonitorThread.join()
+            else:
+                # Confirm user wants to exit
+                dlg = wx.MessageDialog(None, 'Are you sure you want to exit pyTivo?', 'Confirm',
+                                       wx.YES_NO | wx.ICON_EXCLAMATION | wx.NO_DEFAULT | wx.CENTRE)
+                exitPyTivo = dlg.ShowModal() == wx.ID_YES
+                dlg.Destroy()
+                if not exitPyTivo:
+                    return
 
-            wx.CallAfter(self.Destroy)
-            self.frame.Close()
+                if not self.StopPyTivoThread():
+                    return
+
+        # Kill version check timer
+        if self.versionCheckTimer != None:
+            if self.versionCheckTimer.is_alive():
+                self.versionCheckTimer.cancel()
+                self.versionCheckTimer = None
+
+        wx.CallAfter(self.Destroy)
+        self.frame.Close()
+
 
     def __del__(self):
         if isWindows:
@@ -460,6 +615,7 @@ class pyTivoApp(wx.App):
         pyTivoTray(frame)
         return True
 
+
 def main():
     app = pyTivoApp(False)
     app.MainLoop()
@@ -469,19 +625,5 @@ if __name__ == '__main__':
     for arg in sys.argv:
         if arg == '--show-desktop':
             showDesktopOnStart = True
-        elif arg == '--mak':
-            setToGoMAK = True
-        elif arg == '--path':
-            setToGoPath = True
-        elif arg == '--publish':
-            publishToGoPath = True
-        elif arg == '--silent':
-            silentRun = True
-        else:
-            if setToGoMAK and not toGoMAK:
-                toGoMAK = arg
-            elif setToGoPath and not toGoPath:
-                toGoPath = arg
-
 
     main()

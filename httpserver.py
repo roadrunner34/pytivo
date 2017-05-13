@@ -25,7 +25,7 @@ if getattr(sys, 'frozen', False):
 
 SERVER_INFO = """<?xml version="1.0" encoding="utf-8"?>
 <TiVoServer>
-<Version>1.6.0</Version>
+<Version>1.6.2</Version>
 <InternalName>pyTivo</InternalName>
 <InternalVersion>pyTivo Desktop</InternalVersion>
 <Organization>pyTivo Developers</Organization>
@@ -98,7 +98,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def setup(self):
         BaseHTTPServer.BaseHTTPRequestHandler.setup(self)
-        self.request.settimeout(60) # This allows pyTivo to die when user selects Stop Transfer on the TiVo
+        self.request.settimeout(180) # This allows pyTivo to die when user selects Stop Transfer on the TiVo
 
     def address_string(self):
         host, port = self.client_address[:2]
@@ -290,6 +290,9 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return False
 
     def log_message(self, format, *args):
+        if 'NoLog' in args[0]:
+            return
+
         self.server.logger.info("%s [%s] %s" % (self.address_string(),
                                 self.log_date_time_string(), format%args))
 

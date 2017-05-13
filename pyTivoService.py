@@ -36,16 +36,24 @@ class PyTivoService(win32serviceutil.ServiceFramework):
         httpd.beacon.stop()
         return httpd.restart
 
-    def SvcDoRun(self): 
+    def SvcDoRun(self):
+        self.ReportServiceStatus(win32service.SERVICE_START_PENDING)
+
         if getattr(sys, 'frozen', False):
-                p = os.path.dirname(sys.executable)
+                p = os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo')
+                if not os.path.isdir(p):
+                    os.mkdir(p)
         elif __file__:
                 p = os.path.dirname(__file__)
 
-        f = open(os.path.join(p, 'log.txt'), 'w')
-        sys.stdout = f
-        sys.stderr = f
+        try:
+            f = open(os.path.join(p, 'log.txt'), 'w')
+            sys.stdout = f
+            sys.stderr = f
+        except:
+            pass
 
+        self.ReportServiceStatus(win32service.SERVICE_RUNNING)
         while self.mainloop():
             time.sleep(5)
 			
@@ -58,9 +66,8 @@ class PyTivoService(win32serviceutil.ServiceFramework):
 if __name__ == '__main__': 
     if len(sys.argv) == 1:
         try:
-            evtsrc_dll = os.path.abspath(servicemanager.__file__)
+            servicemanager.Initialize()
             servicemanager.PrepareToHostSingle(PyTivoService)
-            servicemanager.Initialize('PyTivo', evtsrc_dll)
             servicemanager.StartServiceCtrlDispatcher()
         except win32service.error, details:
             if details[0] == winerror.ERROR_FAILED_SERVICE_CONTROLLER_CONNECT:

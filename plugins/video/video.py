@@ -148,6 +148,10 @@ class Video(Plugin):
         has_tivolibre = bool(config.get_bin('tivolibre'))
         has_tivodecode = bool(config.get_bin('tivodecode'))
 
+        use_tivolibre = False
+        if has_tivolibre and bool(config.get_server('tivolibre_upload', True)):
+            use_tivolibre = True
+
         if 'Format' in query:
             mime = query['Format'][0]
 
@@ -225,7 +229,7 @@ class Video(Plugin):
                         count += len(block)
                         output += len(block)
                 try:
-                    if is_tivo_file and has_tivolibre:
+                    if is_tivo_file and use_tivolibre:
                         status[tivo_name][path]['decrypting'] = True
 
                         f.close()
