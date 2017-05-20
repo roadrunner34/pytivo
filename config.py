@@ -33,12 +33,17 @@ def init(argv, in_service=False):
     tivos_found = False
     running_in_service = in_service
 
-    if in_service:
-        config_files = [os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo', 'pyTivo.conf')]
-    elif 'APPDATA' in os.environ:
-        config_files = [os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')]
+    if getattr(sys, 'frozen', False):
+        if in_service:
+            config_files = [os.path.join(os.environ['ALLUSERSPROFILE'], 'pyTivo', 'pyTivo.conf')]
+        elif 'APPDATA' in os.environ:
+            config_files = [os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')]
+        else:
+            config_files = [os.path.join(SCRIPTDIR, 'pyTivo.conf')]
     else:
         config_files = ['/etc/pyTivo.conf', os.path.join(SCRIPTDIR, 'pyTivo.conf')]
+        if 'APPDATA' in os.environ:
+            config_files.append(os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf'))
 
     try:
         opts, _ = getopt.getopt(argv, 'c:e:', ['config=', 'extraconf='])
@@ -203,6 +208,9 @@ def getShares(tsn=''):
         shares.append(('Settings', {'type': 'settings'}))
     if get_server('tivo_mak') and get_server('togo_path'):    
         shares.append(('ToGo', {'type': 'togo'}))
+
+    if getattr(sys, 'frozen', False):
+        shares.append(('Desktop', {'type': 'desktop', 'path': os.path.join(sys._MEIPASS, 'plugins', 'desktop', 'content')}))
 
     return shares
 

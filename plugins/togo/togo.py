@@ -513,7 +513,7 @@ class ToGo(Plugin):
                 while True:
                     fileName = title
 
-                    sortable = config.get_server('togo_sortable_names', False)
+                    sortable = bool(config.get_server('togo_sortable_names', False))
 
                     if sortable == True:
                         fileName += ' - '
