@@ -1,0 +1,50 @@
+# -*- mode: python -*-
+
+block_cipher = None
+
+
+a = Analysis(['../pyTivoService.py'],
+             pathex=['../'],
+             binaries=[],
+             datas=[('../content/*.*', 'content'),
+				('../templates/*.*', 'templates'), 
+				('../plugins/settings/templates/*.*', 'plugins/settings/templates'), 
+				('../plugins/settings/content/*.*', 'plugins/settings/content'), 
+				('../plugins/settings/help.txt', 'plugins/settings/'),
+				('../plugins/music/templates/*.*', 'plugins/music/templates'), 
+				('../plugins/photo/templates/*.*', 'plugins/photo/templates'), 
+				('../plugins/togo/templates/*.*', 'plugins/togo/templates'), 
+                ('../plugins/video/templates/*.*', 'plugins/video/templates'),
+				('../UserInterface/res/*.png', 'UserInterface/res/')],
+             hiddenimports=[
+				'Cheetah.DummyTransaction', 
+				'Cheetah.Version',
+				'Cheetah.Template',
+				'Cheetah.NameMapper',
+				'Cheetah.CacheRegion',
+				'Cheetah.Filters',
+				'Cheetah.ErrorCatchers',
+				'plugins.settings.settings', 
+				'plugins.music.music', 
+				'plugins.photo.photo', 
+				'plugins.togo.togo', 
+				'plugins.video.video'],
+             hookspath=[],
+             runtime_hooks=[],
+             excludes=[],
+             win_no_prefer_redirects=False,
+             win_private_assemblies=False,
+             cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data,
+             cipher=block_cipher)
+exe = EXE(pyz,
+          a.scripts,
+          a.binaries,
+          a.zipfiles,
+          a.datas,
+          name='pyTivoService',
+          debug=False,
+          strip=False,
+          upx=True,
+          console=True,
+		  icon='../UserInterface/res/icon.ico' )

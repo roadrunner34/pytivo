@@ -132,17 +132,20 @@ class Video(Plugin):
         tivo_header_size = 0
         is_tivo_ts = False
 
-        f = open(unicode(path, 'utf-8'), 'rb')
-        tivo_header = bytearray(f.read(16))
-        if tivo_header[0:4].decode("utf-8") == 'TiVo':
-            is_tivo_file = True
-            try:
-                if (tivo_header[7] & 0x20 != 0):
-                    is_tivo_ts = True
-            except Exception, msg:
-                test = 0
-            tivo_header_size = struct.unpack_from('>L', tivo_header, 10)[0]
-        f.close()
+        try:
+            f = open(unicode(path, 'utf-8'), 'rb')
+            tivo_header = bytearray(f.read(16))
+            if tivo_header[0:4].decode("utf-8") == 'TiVo':
+                is_tivo_file = True
+                try:
+                    if (tivo_header[7] & 0x20 != 0):
+                        is_tivo_ts = True
+                except Exception, msg:
+                    test = 0
+                tivo_header_size = struct.unpack_from('>L', tivo_header, 10)[0]
+            f.close()
+        except:
+            pass
 
         tivo_mak = config.get_tsn('tivo_mak', tsn)
         has_tivolibre = bool(config.get_bin('tivolibre'))
