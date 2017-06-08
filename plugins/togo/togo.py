@@ -217,7 +217,12 @@ class ToGo(Plugin):
 
                     EpisodeID = tag_data(item, 'Details/ProgramId')
                     if (not EpisodeID):
-                        EpisodeID = 'TS%08d' % GeneratedID
+                        EpisodeID = 'EP%08d' % GeneratedID
+                        GeneratedID += 1
+
+                    # Check for duplicate episode IDs and replace with generated ID
+                    while EpisodeID in json_config[SeriesID]:
+                        EpisodeID = 'EP%08d' % GeneratedID
                         GeneratedID += 1
 
                     json_config[SeriesID][EpisodeID] = {}
