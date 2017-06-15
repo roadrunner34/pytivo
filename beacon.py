@@ -13,6 +13,7 @@ import config
 from plugin import GetPlugin
 
 SHARE_TEMPLATE = '/TiVoConnect?Command=QueryContainer&Container=%s'
+DESKTOP_URL = '/Desktop'
 PLATFORM_MAIN = 'pyTivo'
 PLATFORM_VIDEO = 'pc/pyTivo'    # For the nice icon
 
@@ -37,6 +38,16 @@ class ZCBroadcast:
         old_titles = self.scan()
         address = socket.inet_aton(config.get_ip())
         port = int(config.getPort())
+
+        """ Announce Desktop via Zeroconf. """
+        desc = {'path': DESKTOP_URL,
+                'platform': PLATFORM_MAIN, 'protocol': 'http'}
+        info = zeroconf.ServiceInfo('_pytivo._tcp.local.',
+                                    'pyTivo Desktop._pytivo._tcp.local.',
+                                    address, port, 0, 0, desc)
+        self.rz.register_service(info)
+
+        """ Announce our shares via Zeroconf. """
         logger.info('Announcing shares...')
         for section, settings in config.getShares():
             try:

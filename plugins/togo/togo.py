@@ -654,6 +654,7 @@ class ToGo(Plugin):
         save_txt = status[url]['save']
 
         length = 0
+        bytes_written = 0
         start_time = time.time()
         last_interval = start_time
         now = start_time
@@ -671,6 +672,7 @@ class ToGo(Plugin):
             length += len(output)
             f.write(output)
 
+            bytes_written += length
             while status[url]['running']:
                 output = handle.read(524144) # Size needs to be divisible by 188
                 if not output:
@@ -678,10 +680,18 @@ class ToGo(Plugin):
 
                 if ts_format:
                     cur_byte = 0
+                    sync_loss_start = -1
                     while cur_byte < len(output):
                         if struct.unpack_from('>B', output, cur_byte)[0] != 0x47:
                             sync_loss = True
                             status[url]['ts_error_count'] += 1
+
+                            if sync_loss_start == -1:
+                                sync_loss_start = cur_byte
+                        else:
+                            if sync_loss_start != -1:
+                                logger.info('TS sync loss detected: %d - %d' % ((sync_loss_start + bytes_written), (cur_byte + bytes_written)))
+                                sync_loss_start = -1
 
                         cur_byte += 188
 
@@ -702,6 +712,7 @@ class ToGo(Plugin):
                             break
 
                 length += len(output)
+                bytes_written += len(output)
                 f.write(output)
                 now = time.time()
                 elapsed = now - last_interval
@@ -749,7 +760,7 @@ class ToGo(Plugin):
                 outfile_name = outfile.split('.')
                 count = 1
                 while True:
-                    outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + ')')
+                    outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + '_' + status[url]['retry'] + ')')
                     if count > 1:
                         outfile_name.insert(-1, ' (' + str(count) + ')')
 
@@ -784,6 +795,7 @@ class ToGo(Plugin):
                 status[url]['queued'] = True
                 status[url]['retry'] += 1
                 status[url]['ts_error_count'] = 0
+                logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
                 status[url]['finished'] = True
@@ -799,6 +811,7 @@ class ToGo(Plugin):
                 status[url]['queued'] = True
                 status[url]['retry'] += 1
                 status[url]['ts_error_count'] = 0
+                logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
                 status[url]['finished'] = True
@@ -830,6 +843,9 @@ class ToGo(Plugin):
             save = 'save' in query
             ts_format = 'ts_format' in query and config.is_ts_capable(tsn)
             for theurl in urls:
+                if theurl in status:
+                    del status[theurl]
+
                 status[theurl] = {'running': False, 'error': '', 'rate': 0,
                                   'queued': True, 'size': 0, 'finished': False,
                                   'decode': decode, 'save': save, 'ts_format': ts_format,
