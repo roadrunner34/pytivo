@@ -760,7 +760,7 @@ class ToGo(Plugin):
                 outfile_name = outfile.split('.')
                 count = 1
                 while True:
-                    outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + '_' + status[url]['retry'] + ')')
+                    outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + '_' + str(status[url]['retry']) + ')')
                     if count > 1:
                         outfile_name.insert(-1, ' (' + str(count) + ')')
 
