@@ -7,7 +7,7 @@ from asar import AsarArchive
 from plugin import Plugin
 logger = logging.getLogger('pyTivo.desktop')
 
-# This plugin only runs in forzen mode
+# This plugin only runs in frozen mode
 SCRIPTDIR = ''
 if getattr(sys, 'frozen', False):
     SCRIPTDIR = os.path.join(sys._MEIPASS, 'plugins', 'desktop')

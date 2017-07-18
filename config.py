@@ -209,6 +209,9 @@ def getShares(tsn=''):
     if get_server('tivo_mak') and get_server('togo_path'):    
         shares.append(('ToGo', {'type': 'togo'}))
 
+    if sys.platform == 'win32':
+        shares.append(('VRD', {'type': 'vrd'}))
+
     if getattr(sys, 'frozen', False):
         shares.append(('Desktop', {'type': 'desktop', 'path': os.path.join(sys._MEIPASS, 'plugins', 'desktop', 'content')}))
 

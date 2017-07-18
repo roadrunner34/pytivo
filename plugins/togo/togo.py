@@ -21,6 +21,9 @@ import config
 import metadata
 from plugin import EncodeUnicode, Plugin
 
+if sys.platform == "win32":
+    from videoredo import interface
+
 logger = logging.getLogger('pyTivo.togo')
 tag_data = metadata.tag_data
 
@@ -321,9 +324,11 @@ class ToGo(Plugin):
             url = query['Url'][0]
             if url in status:
                 state = 'queued'
-                if status[url]['running']:
+                if status[url]['running'] == True:
                     state = 'running'
-                elif status[url]['finished']:
+                elif status[url]['postprocessing'] == True:
+                    state = 'postprocessing'
+                elif status[url]['finished'] == True:
                     if status[url]['error'] == '':
                         state = 'finished'
                     else:
@@ -332,7 +337,9 @@ class ToGo(Plugin):
 
                 json_config['state'] = state
                 json_config['rate'] = status[url]['rate']
+                json_config['percent'] = status[url]['percent']
                 json_config['size'] = status[url]['size']
+                json_config['status'] = status[url]['status']
                 json_config['retry'] = status[url]['retry']
                 json_config['maxRetries'] = status[url]['ts_max_retries']
                 json_config['errorCount'] = status[url]['ts_error_count']
@@ -798,7 +805,9 @@ class ToGo(Plugin):
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
-                status[url]['finished'] = True
+                self.post_process_file(url, outfile)
+
+
         else:
             os.remove(outfile)
             logger.info('[%s] Transfer of "%s" from %s aborted' %
@@ -814,8 +823,63 @@ class ToGo(Plugin):
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
+                if status[url]['best_file']:
+                    self.post_process_file(url, status[url]['best_file'])
+                else:
+                    status[url]['finished'] = True
+
+
+    def post_process_file(self, url, outfile):
+        vrd_post_processing = config.get_server('vrd_post_processing')
+        if not vrd_post_processing or vrd_post_processing == 'none':
+            status[url]['finished'] = True
+        else:
+            out_folder = config.get_server('vrd_output_folder', '')
+            if not out_folder:
+                out_folder = os.path.dirname(outfile)
+
+            vrd = interface.VideoReDo()
+            if vrd_post_processing == 'adscan':
+                vrd.ad_scan(outfile)
+                status[url]['postprocessing'] = True
+            elif vrd_post_processing == 'qsf':
+                decrypt_qsf = config.get_server('vrd_decrypt_qsf', False)
+                vrd.quick_stream_fix(outfile, decrypt_qsf, out_folder)
+                status[url]['postprocessing'] = True
+            elif vrd_post_processing == 'profile':
+                profile = config.get_server('vrd_profile', '')
+                vrd.save_to_profile(outfile, profile, out_folder)
+                status[url]['postprocessing'] = True
+            else:
                 status[url]['finished'] = True
-                #del status[url]
+
+            if status[url]['postprocessing'] == True:
+                time.sleep(2)
+
+                vrd_status = vrd.get_status()
+                while vrd_status['state'] != 'none':
+                    if vrd_status['state'] == 'paused':
+                        vrd.pause_output(False)  # should never be paused, but just in case
+
+                    status[url]['percent'] = vrd_status['percent']
+                    status[url]['status'] = vrd_status['text']
+                    time.sleep(2)
+                    vrd_status = vrd.get_status()
+
+                vrd.close_file()
+                time.sleep(2)
+
+                vrd_delete_on_success = bool(config.get_server('vrd_delete_on_success', False))
+                if vrd_delete_on_success == True:
+                    while True:
+                        try:
+                            os.remove(outfile)
+                            break
+                        except:
+                            continue
+
+                status[url]['postprocessing'] = False
+                status[url]['finished'] = True
 
 
     def process_queue(self, tivoIP, mak, togo_path):
@@ -846,8 +910,8 @@ class ToGo(Plugin):
                 if theurl in status:
                     del status[theurl]
 
-                status[theurl] = {'running': False, 'error': '', 'rate': 0,
-                                  'queued': True, 'size': 0, 'finished': False,
+                status[theurl] = {'running': False, 'status': '', 'error': '', 'rate': 0, 'percent': 0,
+                                  'queued': True, 'size': 0, 'postprocessing': False, 'finished': False,
                                   'decode': decode, 'save': save, 'ts_format': ts_format,
                                   'retry': 0, 'ts_max_retries': int(config.get_server('togo_ts_max_retries', 0)),
                                   'ts_error_count': 0, 'best_file': '', 'best_error_count': 0}

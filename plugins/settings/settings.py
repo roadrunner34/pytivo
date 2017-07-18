@@ -201,6 +201,11 @@ class Settings(Plugin):
 
         handler.send_json(json.dumps(json_config))
 
+    def GetOSName(self, handler, query):
+        json_config = {}
+        json_config['os'] = sys.platform
+        handler.send_json(json.dumps(json_config))
+
     def GetDriveList(self, handler, query):
         import psutil
         json_config = {}

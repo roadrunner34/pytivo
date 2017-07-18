@@ -1,0 +1,34 @@
+<VRDOutputProfile enabled="true">
+	<Name>Program Stream</Name>
+	<OutputMode>Smart</OutputMode>
+	<RecodeMode>Quality</RecodeMode>
+	<FileType>MPG</FileType>
+	<FileExt></FileExt>
+	<OutputLibrary>
+		<Program>None</Program>
+		<CustomPath></CustomPath>
+	</OutputLibrary>
+	<DefaultOutputDir></DefaultOutputDir>
+	<VideoAttributes>
+		<Encoder>Match</Encoder>
+		<AspectRatio>No Change</AspectRatio>
+		<AspectCorrection>None</AspectCorrection>
+		<EncodeDimensions>
+			<Width>1920</Width>
+			<Height>1080</Height>
+		</EncodeDimensions>
+		<EncodeBitrate>0</EncodeBitrate>
+		<HeaderBitrate>0</HeaderBitrate>
+		<MaxBitrate>0</MaxBitrate>
+		<EncodingMode>SP</EncodingMode>
+		<DeinterlaceMethod>None</DeinterlaceMethod>
+		<FrameRate>No Change</FrameRate>
+	</VideoAttributes>
+	<AudioAttributes>
+		<Encoder>Auto</Encoder>
+		<Bitrate>0</Bitrate>
+		<SampleRate>No Change</SampleRate>
+		<ChannelMode>Auto</ChannelMode>
+		<LPCMEndianess>Little</LPCMEndianess>
+	</AudioAttributes>
+</VRDOutputProfile>
