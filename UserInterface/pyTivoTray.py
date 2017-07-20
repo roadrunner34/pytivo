@@ -12,7 +12,7 @@ import json
 from threading import Timer
 from Icons import TrayIcon
 
-versionString = '1.6.9'
+versionString = '1.6.11'
 version = versionString.split('.')
 
 showDesktopOnStart = False
@@ -133,6 +133,14 @@ def SetUpdateCheckInterval(days):
 
 def ShowWebUI():
     webbrowser.open('http://localhost:' + GetPort(), new=0, autoraise=True)
+
+def IsBetaTester():
+    config = LoadConfigFile()
+    try:
+        beta_tester = config.getboolean('Server', 'beta_tester')
+    except:
+        beta_tester = False
+    return beta_tester
 
 def GetDownloadQueueCount():
     try:
@@ -324,6 +332,77 @@ class pyTivoTray(wx.TaskBarIcon):
             dlg.ShowModal()
             dlg.Destroy()
 
+    def PromptBetaUpdate(self, updateAvailable, newVersion, error):
+        if updateAvailable:
+            dlg = wx.MessageDialog(None,
+                                   'A new beta version of pyTivo Desktop is available',
+                                   'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
+
+            currentText = 'Current version: ' + version[0] + '.' + version[1] + '.' + version[2]
+            newText = 'Beta version: ' + newVersion
+            extMessageText = currentText + '\n' + newText + '\n\nWould you like to download it now?'
+            dlg.SetExtendedMessage(extMessageText)
+
+            doDownload = dlg.ShowModal() == wx.ID_YES
+            dlg.Destroy()
+
+            if doDownload:
+                if isMacOSX:
+                    webbrowser.open('http://www.pytivodesktop.com/mac_beta.html', new=2, autoraise=True)
+                elif isWindows:
+                    webbrowser.open('http://www.pytivodesktop.com/windows_beta.html', new=2, autoraise=True)
+        elif error:
+            dlg = wx.MessageDialog(None,
+                                   'Error contacting server, try again later',
+                                   'Error', wx.OK | wx.ICON_ERROR | wx.CENTRE)
+
+            dlg.ShowModal()
+            dlg.Destroy()
+        else:
+            dlg = wx.MessageDialog(None,
+                                   'Your version of pyTivo Desktop is current',
+                                   'No Beta Available', wx.OK | wx.ICON_INFORMATION | wx.CENTRE)
+
+            dlg.ShowModal()
+            dlg.Destroy()
+
+    def CheckBetaVersionFunc(self, silentCheck):
+        isError = False
+        try:
+            if isMacOSX:
+                response = urllib2.urlopen('http://www.pytivodesktop.com/mac/beta.info').read()
+            elif isWindows:
+                response = urllib2.urlopen('http://www.pytivodesktop.com/win32/beta.info').read()
+            else:
+                return
+
+            latest = response.split('.')
+
+            newer = False
+            if int(latest[0]) > int(version[0]):
+                newer = True
+            elif int(latest[0]) == int(version[0]):
+                if int(latest[1]) > int(version[1]):
+                    newer = True
+                elif int(latest[1]) == int(version[1]):
+                    if int(latest[2]) > int(version[2]):
+                        newer = True
+
+            if newer:
+                newVersion = latest[0] + '.' + latest[1] + '.' + latest[2]
+                wx.CallAfter(self.PromptBetaUpdate, True, newVersion, False)
+            elif not silentCheck:
+                wx.CallAfter(self.PromptBetaUpdate, False, '', False)
+
+        except urllib2.URLError, e:
+            isError = True
+        except socket.timeout, e:
+            isError = True
+
+        if isError:
+            if not silentCheck:
+                wx.CallAfter(self.PromptBetaUpdate, False, '', True)
+
 
     def CheckVersionFunc(self, silentCheck):
         isError = False
@@ -350,9 +429,12 @@ class pyTivoTray(wx.TaskBarIcon):
             if newer:
                 newVersion = latest[0] + '.' + latest[1] + '.' + latest[2]
                 wx.CallAfter(self.PromptVersionUpdate, True, newVersion, False)
-
-            elif not silentCheck:
-                wx.CallAfter(self.PromptVersionUpdate, False, '', False)
+            else:
+                if IsBetaTester():
+                    self.CheckBetaVersionFunc(silentCheck)
+                else:
+                    if not silentCheck:
+                        wx.CallAfter(self.PromptVersionUpdate, False, '', False)
 
         except urllib2.URLError, e:
             isError = True

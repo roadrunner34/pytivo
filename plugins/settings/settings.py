@@ -169,7 +169,7 @@ class Settings(Plugin):
         for section in config.config.sections():
             if section == 'Server':
                 for name, value in config.config.items(section):
-                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names', 'tivolibre_upload'}:
+                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names', 'tivolibre_upload', 'beta_tester', 'vrd_prompt', 'vrd_decrypt_qsf', 'vrd_delete_on_success'}:
                         try:
                             json_config['Server'][name] = config.config.getboolean(section, name)
                         except ValueError:
@@ -241,6 +241,32 @@ class Settings(Plugin):
                 json_config[index]['mountpoint'] = part.mountpoint
                 json_config[index]['name'] = part.device
 
+
+        handler.send_json(json.dumps(json_config))
+
+    def GetDiskUsage(self, handler, query):
+        json_config = {}
+        json_config['total'] = 0
+        json_config['free'] = 0
+        json_config['used'] = 0
+
+        if 'Path' in query:
+            path = unicode(unquote(query['Path'][0]), 'utf-8')
+
+            try:
+                if sys.platform == 'win32':
+                    import psutil
+                    stats = psutil.disk_usage(path)
+                    json_config['total'] = stats.total
+                    json_config['free'] = stats.free
+                    json_config['used'] = stats.used
+                else:
+                    stats = os.statvfs(path)
+                    json_config['total'] = stats.f_blocks * stats.f_frsize
+                    json_config['free'] = stats.f_bavail * stats.f_frsize
+                    json_config['used'] = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
+            except:
+                pass
 
         handler.send_json(json.dumps(json_config))
 

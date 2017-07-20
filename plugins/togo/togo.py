@@ -1,3 +1,4 @@
+import ConfigParser
 import cgi
 import cookielib
 import logging
@@ -525,7 +526,7 @@ class ToGo(Plugin):
                 while True:
                     fileName = title
 
-                    sortable = bool(config.get_server('togo_sortable_names', False))
+                    sortable = config.config.getboolean('Server', 'togo_sortable_names')
 
                     if sortable == True:
                         fileName += ' - '
@@ -805,7 +806,10 @@ class ToGo(Plugin):
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
-                self.post_process_file(url, outfile)
+                if status[url]['postprocess'] != 'none':
+                    self.post_process_file(url, outfile)
+                else:
+                    status[url]['finished'] = True
 
 
         else:
@@ -823,14 +827,14 @@ class ToGo(Plugin):
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
                 queue[tivoIP].insert(1, url)
             else:
-                if status[url]['best_file']:
+                if status[url]['best_file'] and status[url]['postprocess'] != 'none':
                     self.post_process_file(url, status[url]['best_file'])
                 else:
                     status[url]['finished'] = True
 
 
     def post_process_file(self, url, outfile):
-        vrd_post_processing = config.get_server('vrd_post_processing')
+        vrd_post_processing = status[url]['postprocess']
         if not vrd_post_processing or vrd_post_processing == 'none':
             status[url]['finished'] = True
         else:
@@ -843,11 +847,11 @@ class ToGo(Plugin):
                 vrd.ad_scan(outfile)
                 status[url]['postprocessing'] = True
             elif vrd_post_processing == 'qsf':
-                decrypt_qsf = config.get_server('vrd_decrypt_qsf', False)
+                decrypt_qsf = status[url]['postprocess_decrypt']
                 vrd.quick_stream_fix(outfile, decrypt_qsf, out_folder)
                 status[url]['postprocessing'] = True
             elif vrd_post_processing == 'profile':
-                profile = config.get_server('vrd_profile', '')
+                profile = status[url]['postprocess_profile']
                 vrd.save_to_profile(outfile, profile, out_folder)
                 status[url]['postprocessing'] = True
             else:
@@ -869,7 +873,7 @@ class ToGo(Plugin):
                 vrd.close_file()
                 time.sleep(2)
 
-                vrd_delete_on_success = bool(config.get_server('vrd_delete_on_success', False))
+                vrd_delete_on_success = status[url]['postprocess_delete']
                 if vrd_delete_on_success == True:
                     while True:
                         try:
@@ -905,6 +909,25 @@ class ToGo(Plugin):
             urls = query.get('Url', [])
             decode = 'decode' in query
             save = 'save' in query
+
+            if 'postprocess' in query:
+                postprocess = query['postprocess'][0]
+            else:
+                postprocess = config.get_server('vrd_post_processing')
+
+            if 'postprocess_profile' in query:
+                postprocess_profile = query['postprocess_profile'][0]
+            else:
+                postprocess_profile = config.get_server('vrd_profile', '')
+
+            postprocess_decrypt = 'postprocess_decrypt' in query
+            if not postprocess_decrypt:
+                postprocess_decrypt = config.config.getboolean('Server', 'vrd_decrypt_qsf')
+
+            postprocess_delete = 'postprocess_delete' in query
+            if not postprocess_delete:
+                postprocess_delete = config.config.getboolean('Server', 'vrd_delete_on_success')
+
             ts_format = 'ts_format' in query and config.is_ts_capable(tsn)
             for theurl in urls:
                 if theurl in status:
@@ -913,6 +936,8 @@ class ToGo(Plugin):
                 status[theurl] = {'running': False, 'status': '', 'error': '', 'rate': 0, 'percent': 0,
                                   'queued': True, 'size': 0, 'postprocessing': False, 'finished': False,
                                   'decode': decode, 'save': save, 'ts_format': ts_format,
+                                  'postprocess': postprocess, 'postprocess_profile': postprocess_profile,
+                                  'postprocess_decrypt': postprocess_decrypt, 'postprocess_delete': postprocess_delete,
                                   'retry': 0, 'ts_max_retries': int(config.get_server('togo_ts_max_retries', 0)),
                                   'ts_error_count': 0, 'best_file': '', 'best_error_count': 0}
                 if tivoIP in queue:

@@ -18,15 +18,21 @@ class VideoReDo():
         self.vrd = None
         self.vrd_version = ''
 
-        vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent')
-        if vrd_silent:
-            self.vrd = vrd_silent.VRDInterface
-            self.vrd_version = self.vrd.ProgramGetVersionNumber
+        try:
+            vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent')
+            if vrd_silent:
+                self.vrd = vrd_silent.VRDInterface
+                self.vrd_version = self.vrd.ProgramGetVersionNumber
+        except:
+            pass
 
 
     def __del__(self):
-        if self.vrd:
-            self.vrd.ProgramExit()
+        try:
+            if self.vrd:
+                self.vrd.ProgramExit()
+        except:
+            pass
 
         comtypes.CoUninitialize()
 
@@ -37,13 +43,17 @@ class VideoReDo():
 
     def get_profiles(self):
         profiles = {}
-        if self.vrd:
-            count = self.vrd.ProfilesGetCount
-            for i in range(count):
-                profile_name = self.vrd.ProfilesGetProfileName(i)
-                profiles[profile_name] = {}
-                profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
-                profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
+
+        try:
+            if self.vrd:
+                count = self.vrd.ProfilesGetCount
+                for i in range(count):
+                    profile_name = self.vrd.ProfilesGetProfileName(i)
+                    profiles[profile_name] = {}
+                    profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
+                    profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
+        except:
+            pass
 
         return profiles
 
@@ -54,37 +64,47 @@ class VideoReDo():
             if os.path.isfile(profile_path):
                 out_file = self.__get_out_file(in_file, 'vprj', ' (AdScan)')
 
-                if self.vrd.FileOpen(in_file, False):
-                    if self.vrd.FileSaveAs(out_file, profile_path):
-                        return True
+                try:
+                    if self.vrd:
+                        if self.vrd.FileOpen(in_file, False):
+                            if self.vrd.FileSaveAs(out_file, profile_path):
+                                return True
+                except:
+                    pass
 
         return False
 
 
     def close_file(self):
-        if self.vrd:
-            self.vrd.FileClose()
+        try:
+            if self.vrd:
+                self.vrd.FileClose()
+        except:
+            pass
 
 
     def save_to_profile(self, in_file, save_profile, output_folder=''):
         if os.path.isfile(in_file):
-            if self.vrd:
-                count = self.vrd.ProfilesGetCount
-                out_file = ''
-                profile_found = False
-                for i in range(count):
-                    profile_name = self.vrd.ProfilesGetProfileName(i)
-                    if save_profile == profile_name:
-                        profile_found = True
-                        ext = self.vrd.ProfilesGetProfileExtension(i)
-                        out_file = self.__get_out_file(in_file, ext, ' (VRD)', output_folder)
-                        profile_found = True
-                        break
+            try:
+                if self.vrd:
+                    count = self.vrd.ProfilesGetCount
+                    out_file = ''
+                    profile_found = False
+                    for i in range(count):
+                        profile_name = self.vrd.ProfilesGetProfileName(i)
+                        if save_profile == profile_name:
+                            profile_found = True
+                            ext = self.vrd.ProfilesGetProfileExtension(i)
+                            out_file = self.__get_out_file(in_file, ext, ' (VRD)', output_folder)
+                            profile_found = True
+                            break
 
-                if profile_found:
-                    if self.vrd.FileOpen(in_file, False):
-                        if self.vrd.FileSaveAs(out_file, save_profile):
-                            return True
+                    if profile_found:
+                        if self.vrd.FileOpen(in_file, False):
+                            if self.vrd.FileSaveAs(out_file, save_profile):
+                                return True
+            except:
+                pass
 
         return False
 
@@ -138,7 +158,7 @@ class VideoReDo():
                         if self.vrd.FileOpen(in_file, True):
                             if self.vrd.FileSaveAs(out_file, profile_path):
                                 return True
-            except Exception, msg:
+            except:
                 pass
 
         return False
@@ -146,35 +166,44 @@ class VideoReDo():
 
     def get_status(self):
         status = {}
-        if self.vrd:
-            state = self.vrd.OutputGetState
-            if state == 1:
-                status['state'] = 'running'
-            elif state == 2:
-                status['state'] = 'paused'
-            else:
-                status['state'] = 'none'
+        try:
+            if self.vrd:
+                state = self.vrd.OutputGetState
+                if state == 1:
+                    status['state'] = 'running'
+                elif state == 2:
+                    status['state'] = 'paused'
+                else:
+                    status['state'] = 'none'
 
-            status['percent'] = self.vrd.OutputGetPercentComplete
-            status['text'] = self.vrd.OutputGetStatusText
+                status['percent'] = self.vrd.OutputGetPercentComplete
+                status['text'] = self.vrd.OutputGetStatusText
+        except:
+            pass
 
         return status
 
 
     def abort_output(self):
-        if self.vrd:
-            if self.vrd.OutputGetState != 0:
-                self.vrd.OutputAbort()
+        try:
+            if self.vrd:
+                if self.vrd.OutputGetState != 0:
+                    self.vrd.OutputAbort()
+        except:
+            pass
 
 
     def pause_output(self, pause):
-        if self.vrd:
-            if pause:
-                if self.vrd.OutputGetState == 1:
-                    self.vrd.OutputPause(True)
-            else:
-                if self.vrd.OutputGetState == 2:
-                    self.vrd.OutputPause(False)
+        try:
+            if self.vrd:
+                if pause:
+                    if self.vrd.OutputGetState == 1:
+                        self.vrd.OutputPause(True)
+                else:
+                    if self.vrd.OutputGetState == 2:
+                        self.vrd.OutputPause(False)
+        except:
+            pass
 
 
     def __get_out_file(self, in_file, ext, add_on, output_folder=''):
