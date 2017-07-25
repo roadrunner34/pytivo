@@ -213,7 +213,7 @@ class ToGo(Plugin):
                 for item in items:
                     SeriesID = tag_data(item, 'Details/SeriesId')
                     if (not SeriesID):
-                        SeriesID = 'TS%08d' % GeneratedID
+                        SeriesID = 'PS%08d' % GeneratedID
                         GeneratedID += 1
 
                     if (not SeriesID in json_config):
@@ -221,12 +221,12 @@ class ToGo(Plugin):
 
                     EpisodeID = tag_data(item, 'Details/ProgramId')
                     if (not EpisodeID):
-                        EpisodeID = 'EP%08d' % GeneratedID
+                        EpisodeID = 'PE%08d' % GeneratedID
                         GeneratedID += 1
 
                     # Check for duplicate episode IDs and replace with generated ID
                     while EpisodeID in json_config[SeriesID]:
-                        EpisodeID = 'EP%08d' % GeneratedID
+                        EpisodeID = 'PE%08d' % GeneratedID
                         GeneratedID += 1
 
                     json_config[SeriesID][EpisodeID] = {}
@@ -526,7 +526,10 @@ class ToGo(Plugin):
                 while True:
                     fileName = title
 
-                    sortable = config.config.getboolean('Server', 'togo_sortable_names')
+                    try:
+                        sortable = config.config.getboolean('Server', 'togo_sortable_names')
+                    except:
+                        sortable = False
 
                     if sortable == True:
                         fileName += ' - '
@@ -922,11 +925,17 @@ class ToGo(Plugin):
 
             postprocess_decrypt = 'postprocess_decrypt' in query
             if not postprocess_decrypt:
-                postprocess_decrypt = config.config.getboolean('Server', 'vrd_decrypt_qsf')
+                try:
+                    postprocess_decrypt = config.config.getboolean('Server', 'vrd_decrypt_qsf')
+                except:
+                    postprocess_decrypt = False
 
             postprocess_delete = 'postprocess_delete' in query
             if not postprocess_delete:
-                postprocess_delete = config.config.getboolean('Server', 'vrd_delete_on_success')
+                try:
+                    postprocess_delete = config.config.getboolean('Server', 'vrd_delete_on_success')
+                except:
+                    postprocess_delete = False
 
             ts_format = 'ts_format' in query and config.is_ts_capable(tsn)
             for theurl in urls:
