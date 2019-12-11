@@ -161,27 +161,40 @@ class ToGo(Plugin):
             try:
                 page = self.tivo_open(theurl)
             except IOError, e:
+                logger.error("Unable to open TiVo")
+                logger.info("Check your Media Access Key")
                 handler.send_error(404)
                 return
 
-            xmldoc = minidom.parse(page)
-            page.close()
-
-            LastChangeDate = unicode(tag_data(xmldoc, 'TiVoContainer/Details/LastChangeDate'))
-
-            # Check date of cache
-            if (tsn in json_cache and json_cache[tsn]['lastChangeDate'] == LastChangeDate):
-                logger.debug("Retrieving shows from cache")
-                handler.send_json(json_cache[tsn]['data'])
+            try:
+                xmldoc = minidom.parse(page)
+                page.close()
+            except:
+                logger.error("XML parser error")
+                handler.send_error(404)
                 return
+
+            try:
+                LastChangeDate = unicode(tag_data(xmldoc, 'TiVoContainer/Details/LastChangeDate'))
+
+                # Check date of cache
+                if (tsn in json_cache and json_cache[tsn]['lastChangeDate'] == LastChangeDate):
+                    logger.info("Shows retrieved from cache")
+                    handler.send_json(json_cache[tsn]['data'])
+                    return
+            except:
+                pass
 
             global basic_meta
             global details_urls
 
             # loop through grabbing 50 items at a time (50 is max TiVo will return)
-            TotalItems = int(unicode(tag_data(xmldoc, 'TiVoContainer/Details/TotalItems')))
+            try:
+                TotalItems = int(unicode(tag_data(xmldoc, 'TiVoContainer/Details/TotalItems')))
+            except:
+                TotalItems = 0
+
             if TotalItems <= 0:
-                logger.debug("Total items 0")
                 handler.send_json(json_config)
                 return
 
@@ -203,11 +216,11 @@ class ToGo(Plugin):
                     items = xmldoc.getElementsByTagName('Item')
                     page.close()
                 except:
-                    logger.debug("XML parser error")
+                    logger.error("XML parser error")
                     break
 
                 if len(items) <= 0:
-                    logger.debug("items collection empty")
+                    logger.info("items collection empty")
                     break
 
                 for item in items:
@@ -763,12 +776,15 @@ class ToGo(Plugin):
             status[url]['running'] = False
 
             if ts_error_mode == 'best' and os.path.isfile(status[url]['best_file']):
-                os.remove(status[url]['best_file'])
-                if os.path.isfile(status[url]['best_file'] + '.txt'):
-                    os.remove(status[url]['best_file'] + '.txt')
+                try:
+                    os.remove(status[url]['best_file'])
+                    if os.path.isfile(status[url]['best_file'] + '.txt'):
+                        os.remove(status[url]['best_file'] + '.txt')
+                except:
+                    logger.error('Unable to delete previous best file: %s' % status[url]['best_file'])
 
             if sync_loss:
-                outfile_name = outfile.split('.')
+                outfile_name = os.path.basename(outfile).split('.')
                 count = 1
                 while True:
                     outfile_name.insert(-1, ' (^' + str(status[url]['ts_error_count']) + '_' + str(status[url]['retry']) + ')')
@@ -776,13 +792,18 @@ class ToGo(Plugin):
                         outfile_name.insert(-1, ' (' + str(count) + ')')
 
                     outfile_name.insert(-1, '.')
-                    new_outfile = ''.join(outfile_name)
+                    new_outfile = os.path.join(togo_path, ''.join(outfile_name))
                     if os.path.isfile(new_outfile):
                         count += 1
                         continue
 
-                    os.rename(outfile, new_outfile)
-                    outfile = new_outfile
+                    try:
+                        os.rename(outfile, new_outfile)
+                        outfile = new_outfile
+                    except:
+                        logger.error('Error renaming file for TS sync loss')
+                        retry_download = False
+
                     break
 
             if save_txt and os.path.isfile(outfile):

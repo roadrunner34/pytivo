@@ -246,8 +246,8 @@ class Settings(Plugin):
 
     def GetDiskUsage(self, handler, query):
         json_config = {}
-        json_config['total'] = 0
-        json_config['free'] = 0
+        json_config['total'] = 9999999999999999999
+        json_config['free'] = 9999999999999999999
         json_config['used'] = 0
 
         if 'Path' in query:

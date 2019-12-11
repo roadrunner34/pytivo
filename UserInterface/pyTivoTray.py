@@ -12,7 +12,7 @@ import json
 from threading import Timer
 from Icons import TrayIcon
 
-versionString = '1.6.12'
+versionString = '1.6.19'
 version = versionString.split('.')
 
 showDesktopOnStart = False

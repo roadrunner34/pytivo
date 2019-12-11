@@ -129,7 +129,8 @@ class Music(Plugin):
                 cmd[-1:] = ['-t', '%.3f' % (duration / 1000.0), '-']
 
             ffmpeg = subprocess.Popen(cmd, bufsize=BLOCKSIZE,
-                                      stdout=subprocess.PIPE)
+                                      stdout=subprocess.PIPE,
+                                      stdin=subprocess.PIPE)
             while True:
                 try:
                     block = ffmpeg.stdout.read(BLOCKSIZE)

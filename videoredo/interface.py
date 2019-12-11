@@ -17,9 +17,14 @@ class VideoReDo():
 
         self.vrd = None
         self.vrd_version = ''
+        self.is_v5 = False
 
         try:
-            vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent')
+            vrd_silent = comtypes.client.CreateObject('VideoReDo6.VideoReDoSilent') # check for v6 first
+            if not vrd_silent:
+                vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent')
+                self.is_v5 = True
+
             if vrd_silent:
                 self.vrd = vrd_silent.VRDInterface
                 self.vrd_version = self.vrd.ProgramGetVersionNumber
@@ -47,11 +52,17 @@ class VideoReDo():
         try:
             if self.vrd:
                 count = self.vrd.ProfilesGetCount
-                for i in range(count):
-                    profile_name = self.vrd.ProfilesGetProfileName(i)
-                    profiles[profile_name] = {}
-                    profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
-                    profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
+                if count > 0:
+                    for i in range(count):
+                        profile_name = self.vrd.ProfilesGetProfileName(i)
+                        profiles[profile_name] = {}
+
+                        if self.is_v5:
+                            profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
+                        else:
+                            profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
+
+                        profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
         except:
             pass
 
@@ -90,19 +101,20 @@ class VideoReDo():
                     count = self.vrd.ProfilesGetCount
                     out_file = ''
                     profile_found = False
-                    for i in range(count):
-                        profile_name = self.vrd.ProfilesGetProfileName(i)
-                        if save_profile == profile_name:
-                            profile_found = True
-                            ext = self.vrd.ProfilesGetProfileExtension(i)
-                            out_file = self.__get_out_file(in_file, ext, ' (VRD)', output_folder)
-                            profile_found = True
-                            break
+                    if count > 0:
+                        for i in range(count):
+                            profile_name = self.vrd.ProfilesGetProfileName(i)
+                            if save_profile == profile_name:
+                                profile_found = True
+                                ext = self.vrd.ProfilesGetProfileExtension(i)
+                                out_file = self.__get_out_file(in_file, ext, ' (VRD)', output_folder)
+                                profile_found = True
+                                break
 
-                    if profile_found:
-                        if self.vrd.FileOpen(in_file, False):
-                            if self.vrd.FileSaveAs(out_file, save_profile):
-                                return True
+                        if profile_found:
+                            if self.vrd.FileOpen(in_file, False):
+                                if self.vrd.FileSaveAs(out_file, save_profile):
+                                    return True
             except:
                 pass
 
