@@ -806,6 +806,7 @@ class ToGo(Plugin):
 
                     break
 
+            metafile_name = ''
             if save_txt and os.path.isfile(outfile):
                 meta = basic_meta[url]
                 try:
@@ -814,7 +815,9 @@ class ToGo(Plugin):
                     handle.close()
                 except:
                     pass
-                metafile = open(outfile + '.txt', 'w')
+
+                metafile_name = outfile + '.txt'
+                metafile = open(metafile_name, 'w')
                 metadata.dump(metafile, meta)
                 metafile.close()
 
@@ -831,7 +834,7 @@ class ToGo(Plugin):
                 queue[tivoIP].insert(1, url)
             else:
                 if status[url]['postprocess'] != 'none':
-                    self.post_process_file(url, outfile)
+                    self.post_process_file(url, outfile, metafile_name)
                 else:
                     status[url]['finished'] = True
 
@@ -857,7 +860,7 @@ class ToGo(Plugin):
                     status[url]['finished'] = True
 
 
-    def post_process_file(self, url, outfile):
+    def post_process_file(self, url, outfile, metafile=''):
         vrd_post_processing = status[url]['postprocess']
         if not vrd_post_processing or vrd_post_processing == 'none':
             status[url]['finished'] = True
@@ -867,47 +870,60 @@ class ToGo(Plugin):
                 out_folder = os.path.dirname(outfile)
 
             vrd = interface.VideoReDo()
-            if vrd_post_processing == 'adscan':
-                vrd.ad_scan(outfile)
-                status[url]['postprocessing'] = True
-            elif vrd_post_processing == 'qsf':
-                decrypt_qsf = status[url]['postprocess_decrypt']
-                vrd.quick_stream_fix(outfile, decrypt_qsf, out_folder)
-                status[url]['postprocessing'] = True
-            elif vrd_post_processing == 'profile':
-                profile = status[url]['postprocess_profile']
-                vrd.save_to_profile(outfile, profile, out_folder)
-                status[url]['postprocessing'] = True
-            else:
-                status[url]['finished'] = True
+            if vrd.vrd is not None:
+                if vrd_post_processing == 'adscan':
+                    vrd.ad_scan(outfile)
+                    status[url]['postprocessing'] = True
+                elif vrd_post_processing == 'qsf':
+                    decrypt_qsf = status[url]['postprocess_decrypt']
+                    vrd.quick_stream_fix(outfile, decrypt_qsf, out_folder)
+                    status[url]['postprocessing'] = True
+                elif vrd_post_processing == 'profile':
+                    profile = status[url]['postprocess_profile']
+                    vrd.save_to_profile(outfile, profile, out_folder)
+                    status[url]['postprocessing'] = True
+                else:
+                    status[url]['finished'] = True
 
-            if status[url]['postprocessing'] == True:
-                time.sleep(2)
-
-                vrd_status = vrd.get_status()
-                while vrd_status['state'] != 'none':
-                    if vrd_status['state'] == 'paused':
-                        vrd.pause_output(False)  # should never be paused, but just in case
-
-                    status[url]['percent'] = vrd_status['percent']
-                    status[url]['status'] = vrd_status['text']
+                if status[url]['postprocessing'] == True:
                     time.sleep(2)
+
                     vrd_status = vrd.get_status()
+                    while vrd_status['state'] != 'none':
+                        if vrd_status['state'] == 'paused':
+                            vrd.pause_output(False)  # should never be paused, but just in case
 
-                vrd.close_file()
-                time.sleep(2)
+                        status[url]['percent'] = vrd_status['percent']
+                        status[url]['status'] = vrd_status['text']
+                        time.sleep(2)
+                        vrd_status = vrd.get_status()
 
-                vrd_delete_on_success = status[url]['postprocess_delete']
-                if vrd_delete_on_success == True:
-                    while True:
+                    vrd.close_file()
+                    time.sleep(2)
+
+                    vrd_delete_on_success = status[url]['postprocess_delete']
+                    if vrd_delete_on_success == True:
+                        while True:
+                            try:
+                                os.remove(outfile)
+                                break
+                            except:
+                                continue
+
+                    # Rename metadata file
+                    if metafile != '' and os.path.isfile(metafile):
                         try:
-                            os.remove(outfile)
-                            break
+                            new_metafile = vrd.output_file + '.txt'
+                            os.rename(metafile, new_metafile)
                         except:
-                            continue
+                            logger.error('Error renaming meadata file')
 
+                    status[url]['postprocessing'] = False
+                    status[url]['finished'] = True
+            else:
                 status[url]['postprocessing'] = False
                 status[url]['finished'] = True
+                logger.info('Failed to initialize VideoReDo COM interface')
 
 
     def process_queue(self, tivoIP, mak, togo_path):

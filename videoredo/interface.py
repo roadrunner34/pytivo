@@ -18,6 +18,7 @@ class VideoReDo():
         self.vrd = None
         self.vrd_version = ''
         self.is_v5 = False
+        self.output_file = ''
 
         try:
             vrd_silent = comtypes.client.CreateObject('VideoReDo6.VideoReDoSilent') # check for v6 first
@@ -239,4 +240,5 @@ class VideoReDo():
                 count += 1
                 continue
 
+            self.output_file = out_file
             return out_file
