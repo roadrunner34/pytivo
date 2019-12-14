@@ -3,6 +3,7 @@ import sys
 import struct
 import config
 from urllib import unquote
+import logging
 
 import comtypes
 import comtypes.client
@@ -17,18 +18,27 @@ class VideoReDo():
 
         self.vrd = None
         self.vrd_version = ''
+        self.is_pro = False
         self.is_v5 = False
         self.output_file = ''
 
         try:
-            vrd_silent = comtypes.client.CreateObject('VideoReDo6.VideoReDoSilent') # check for v6 first
-            if not vrd_silent:
-                vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent')
-                self.is_v5 = True
+            try:
+                vrd_silent = comtypes.client.CreateObject('VideoReDoPro6.VideoReDoSilent') # check for v6 pro first
+                self.is_pro = True
+            except:
+                try:
+                    vrd_silent = comtypes.client.CreateObject('VideoReDo6.VideoReDoSilent') # check for v6 next
+                except:
+                    try:
+                        vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent') # check for v5 last
+                        self.is_v5 = True
+                    except:
+                        pass
 
-            if vrd_silent:
-                self.vrd = vrd_silent.VRDInterface
-                self.vrd_version = self.vrd.ProgramGetVersionNumber
+            self.vrd = vrd_silent.VRDInterface
+            self.vrd_version = self.vrd.ProgramGetVersionNumber
+            logging.info(self.vrd_version)
         except:
             pass
 
@@ -37,6 +47,7 @@ class VideoReDo():
         try:
             if self.vrd:
                 self.vrd.ProgramExit()
+                self.vrd.ReleaseDispatch()
         except:
             pass
 
@@ -45,6 +56,10 @@ class VideoReDo():
 
     def get_version(self):
         return self.vrd_version
+
+
+    def get_is_pro(self):
+        return self.is_pro
 
 
     def get_profiles(self):
@@ -61,7 +76,10 @@ class VideoReDo():
                         if self.is_v5:
                             profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
                         else:
-                            profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
+                            if self.vrd.ProfilesGetProfileIsAdScan(i):
+                                profiles[profile_name]['enabled'] = False
+                            else:
+                                profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
 
                         profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
         except:
@@ -69,20 +87,53 @@ class VideoReDo():
 
         return profiles
 
+    def get_adscan_profiles(self):
+        profiles = {}
 
-    def ad_scan(self, in_file):
+        if self.is_v5:
+            return profiles # no adscan profiles in v5
+
+        try:
+            if self.vrd:
+                count = self.vrd.ProfilesGetCount
+                if count > 0:
+                    for i in range(count):
+                        if self.vrd.ProfilesGetProfileIsAdScan(i):
+                            profile_name = self.vrd.ProfilesGetProfileName(i)
+                            profiles[profile_name] = {}
+
+                            if self.is_v5:
+                                profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileEnabled(i)
+                            else:
+                                profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
+
+                            profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
+        except:
+            pass
+
+        return profiles
+
+
+    def ad_scan(self, in_file, adscan_profile):
         if os.path.isfile(in_file):
-            profile_path = os.path.join(SCRIPTDIR, 'profiles', 'AdScan.OP.xml')
-            if os.path.isfile(profile_path):
-                out_file = self.__get_out_file(in_file, 'vprj', ' (AdScan)')
+            profile = ''
+            if self.is_v5 or adscan_profile == '':
+                profile = os.path.join(SCRIPTDIR, 'profiles', 'AdScan.OP.xml')
+                if not os.path.isfile(profile):
+                    return False
+            else:
+                if adscan_profile != '':
+                    profile = adscan_profile
 
-                try:
-                    if self.vrd:
-                        if self.vrd.FileOpen(in_file, False):
-                            if self.vrd.FileSaveAs(out_file, profile_path):
-                                return True
-                except:
-                    pass
+
+            out_file = self.__get_out_file(in_file, 'vprj', ' (AdScan)')
+            try:
+                if self.vrd:
+                    if self.vrd.FileOpen(in_file, False):
+                        if self.vrd.FileSaveAs(out_file, profile):
+                            return True
+            except:
+                pass
 
         return False
 

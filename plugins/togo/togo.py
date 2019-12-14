@@ -872,7 +872,8 @@ class ToGo(Plugin):
             vrd = interface.VideoReDo()
             if vrd.vrd is not None:
                 if vrd_post_processing == 'adscan':
-                    vrd.ad_scan(outfile)
+                    profile = status[url]['postprocess_profile']
+                    vrd.ad_scan(outfile, profile)
                     status[url]['postprocessing'] = True
                 elif vrd_post_processing == 'qsf':
                     decrypt_qsf = status[url]['postprocess_decrypt']

@@ -25,11 +25,18 @@ class VRD(Plugin):
         json_config = {}
         vrd = interface.VideoReDo()
         json_config['version'] = vrd.get_version()
+        json_config['isPro'] = vrd.get_is_pro();
         handler.send_json(json.dumps(json_config))
 
 
     def GetProfileList(self, handler, query):
         vrd = interface.VideoReDo()
         profiles = vrd.get_profiles()
+        handler.send_json(json.dumps(profiles))
+
+
+    def GetAdScanProfileList(self, handler, query):
+        vrd = interface.VideoReDo()
+        profiles = vrd.get_adscan_profiles()
         handler.send_json(json.dumps(profiles))
 
