@@ -63,7 +63,7 @@ class TivoHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
     def add_container(self, name, settings):
         if name in self.containers or name == 'TiVoConnect':
-            raise "Container Name in use"
+            raise Exception('Container Name in use')
         try:
             self.containers[name] = settings
         except KeyError:
