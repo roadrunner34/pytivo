@@ -26,6 +26,7 @@ exe = EXE(pyz,
           debug=False,
           strip=False,
           upx=True,
+          runtime_tmpdir='c:/ProgramData/pyTivo/temp',
           console=False,
 		  icon='../UserInterface/res/icon.ico' )
 

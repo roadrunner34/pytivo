@@ -12,7 +12,7 @@ import json
 from threading import Timer
 from Icons import TrayIcon
 
-versionString = '1.6.21'
+versionString = '1.6.22'
 version = versionString.split('.')
 
 showDesktopOnStart = False
@@ -408,9 +408,11 @@ class pyTivoTray(wx.TaskBarIcon):
         isError = False
         try:
             if isMacOSX:
-                response = urllib2.urlopen('http://www.pytivodesktop.com/mac/version.info').read()
+                versionUrl = 'http://www.pytivodesktop.com/php/update_check.php?platform=mac&current=' + versionString
+                response = urllib2.urlopen(versionUrl).read()
             elif isWindows:
-                response = urllib2.urlopen('http://www.pytivodesktop.com/win32/version.info').read()
+                versionUrl = 'http://www.pytivodesktop.com/php/update_check.php?platform=win&current=' + versionString
+                response = urllib2.urlopen(versionUrl).read()
             else:
                 return
 
