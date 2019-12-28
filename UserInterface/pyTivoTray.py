@@ -117,9 +117,30 @@ def GetUpdateCheckInterval():
         try:
             return int(config.get('Server', 'update_check_interval'))
         except ValueError:
-            return 1
+            pass
 
     return 1  # default is once a day
+
+
+def GetUpdateIgnoreVersion():
+    ignoreVersion = '0.0.0'
+    config = LoadConfigFile()
+    if config.has_option('Server', 'update_check_ignore_version'):
+        try:
+            ignoreVersion = config.get('Server', 'update_check_ignore_version')
+        except ValueError:
+            pass
+
+    return ignoreVersion.split('.')
+
+
+def SetUpdateIgnoreVersion(ignoreVersion):
+    config = LoadConfigFile()
+    if not config.has_section('Server'):
+        config.add_section('Server')
+
+    config.set('Server', 'update_check_ignore_version', ignoreVersion)
+    SaveConfigFile(config)
 
 
 def SetUpdateCheckInterval(days):
@@ -302,14 +323,17 @@ class pyTivoTray(wx.TaskBarIcon):
         if updateAvailable:
             dlg = wx.MessageDialog(None,
                                    'A new version of pyTivo Desktop is available',
-                                   'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE)
+                                   'Update Available', wx.YES_NO | wx.ICON_INFORMATION | wx.YES_DEFAULT | wx.CENTRE | wx.CANCEL)
 
             currentText = 'Current version: ' + version[0] + '.' + version[1] + '.' + version[2]
             newText = 'New version: ' + newVersion
             extMessageText = currentText + '\n' + newText + '\n\nWould you like to download it now?'
             dlg.SetExtendedMessage(extMessageText)
+            dlg.SetYesNoCancelLabels('Download Now', 'Maybe Later', 'Ignore update')
 
-            doDownload = dlg.ShowModal() == wx.ID_YES
+            answer = dlg.ShowModal()
+            doDownload = answer == wx.ID_YES
+            doIgnore = answer == wx.ID_CANCEL
             dlg.Destroy()
 
             if doDownload:
@@ -317,6 +341,9 @@ class pyTivoTray(wx.TaskBarIcon):
                     webbrowser.open('http://www.pytivodesktop.com/mac.html', new=2, autoraise=True)
                 elif isWindows:
                     webbrowser.open('http://www.pytivodesktop.com/windows.html', new=2, autoraise=True)
+            elif doIgnore:
+                SetUpdateIgnoreVersion(newVersion)
+
         elif error:
             dlg = wx.MessageDialog(None,
                                    'Error contacting server, try again later',
@@ -331,6 +358,8 @@ class pyTivoTray(wx.TaskBarIcon):
 
             dlg.ShowModal()
             dlg.Destroy()
+
+
 
     def PromptBetaUpdate(self, updateAvailable, newVersion, error):
         if updateAvailable:
@@ -427,6 +456,12 @@ class pyTivoTray(wx.TaskBarIcon):
                 elif int(latest[1]) == int(version[1]):
                     if int(latest[2]) > int(version[2]):
                         newer = True
+
+            ignoreVersion = GetUpdateIgnoreVersion()
+            if int(latest[0]) <= int(ignoreVersion[0]):
+                if int(latest[1]) <= int(ignoreVersion[1]):
+                    if int(latest[2]) <= int(ignoreVersion[2]):
+                        newer = False
 
             if newer:
                 newVersion = latest[0] + '.' + latest[1] + '.' + latest[2]
