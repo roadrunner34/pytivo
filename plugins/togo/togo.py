@@ -135,7 +135,7 @@ class ToGo(Plugin):
         for tsn in config.tivos:
             if tsn and 'address' in config.tivos[tsn]:
                 json_config[tsn] = {}
-                if 'port' in config.tivos[tsn]:
+                if 'name' in config.tivos[tsn]:
                     json_config[tsn]['name'] = config.tivos[tsn]['name']
                 else:
                     json_config[tsn]['name'] = "Unnamed TiVo: " + tsn
