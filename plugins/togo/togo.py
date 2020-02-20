@@ -133,11 +133,24 @@ class ToGo(Plugin):
     def GetTiVoList(self, handler, query):
         json_config = {}
         for tsn in config.tivos:
-            json_config[tsn] = {}
-            json_config[tsn]['name'] = config.tivos[tsn]['name']
-            json_config[tsn]['tsn'] = tsn
-            json_config[tsn]['address'] = config.tivos[tsn]['address']
-            json_config[tsn]['port'] = config.tivos[tsn]['port']
+            if tsn and 'address' in config.tivos[tsn]:
+                json_config[tsn] = {}
+                if 'port' in config.tivos[tsn]:
+                    json_config[tsn]['name'] = config.tivos[tsn]['name']
+                else:
+                    json_config[tsn]['name'] = "Unnamed TiVo: " + tsn
+
+                json_config[tsn]['tsn'] = tsn
+                json_config[tsn]['address'] = config.tivos[tsn]['address']
+                if 'port' in config.tivos[tsn]:
+                    json_config[tsn]['port'] = config.tivos[tsn]['port']
+                else:
+                    json_config[tsn]['port'] = 443
+            else:
+                if tsn:
+                    logger.info("No address for TSN: " + tsn)
+                else:
+                    logger.error("Invalid TiVo detected")
 
         handler.send_json(json.dumps(json_config))
 

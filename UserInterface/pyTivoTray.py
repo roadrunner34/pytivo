@@ -12,7 +12,7 @@ import json
 from threading import Timer
 from Icons import TrayIcon
 
-versionString = '1.6.22'
+versionString = '1.6.24'
 version = versionString.split('.')
 
 showDesktopOnStart = False
@@ -329,7 +329,7 @@ class pyTivoTray(wx.TaskBarIcon):
             newText = 'New version: ' + newVersion
             extMessageText = currentText + '\n' + newText + '\n\nWould you like to download it now?'
             dlg.SetExtendedMessage(extMessageText)
-            dlg.SetYesNoCancelLabels('Download Now', 'Maybe Later', 'Ignore update')
+            dlg.SetYesNoCancelLabels('Download Now', 'Maybe Later', 'Ignore Update')
 
             answer = dlg.ShowModal()
             doDownload = answer == wx.ID_YES
