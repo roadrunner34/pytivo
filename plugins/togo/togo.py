@@ -264,7 +264,7 @@ class ToGo(Plugin):
                     json_config[SeriesID][EpisodeID]['description'] = tag_data(item, 'Details/Description')
                     json_config[SeriesID][EpisodeID]['recordDate'] = tag_data(item, 'Details/CaptureDate')
                     json_config[SeriesID][EpisodeID]['duration'] = tag_data(item, 'Details/Duration')
-                    json_config[SeriesID][EpisodeID]['sourceSize'] = tag_data(item, 'Details/SourceSize')
+                    json_config[SeriesID][EpisodeID]['sourceSize'] = int(tag_data(item, 'Details/SourceSize'))
                     json_config[SeriesID][EpisodeID]['channel'] = tag_data(item, 'Details/SourceChannel')
                     json_config[SeriesID][EpisodeID]['stationID'] = tag_data(item, 'Details/SourceStation')
                     json_config[SeriesID][EpisodeID]['episodeID'] = EpisodeID
@@ -698,6 +698,11 @@ class ToGo(Plugin):
         retry_download = False
         sync_loss = False
         ts_error_mode = config.get_server('togo_ts_error_mode', 'ignore')
+        slow_on_retry = bool(config.get_server('togo_slow_on_retry', 1))
+        download_delay = float(5 - int(config.get_server('togo_download_speed', 5))) * 0.01;
+        download_delay += status[url]['download_delay'];
+        logger.info('Download delay set to %f' % download_delay)
+
         try:
             # Download just the header first so remaining bytes are packet aligned for TS
             tivo_header = handle.read(16)
@@ -711,7 +716,7 @@ class ToGo(Plugin):
 
             bytes_written += length
             while status[url]['running']:
-                output = handle.read(524144) # Size needs to be divisible by 188
+                output = handle.read(282000) # Size needs to be divisible by 188 (524144)
                 if not output:
                     break
 
@@ -758,6 +763,8 @@ class ToGo(Plugin):
                     status[url]['size'] += length
                     length = 0
                     last_interval = now
+
+                time.sleep(download_delay)
 
             if status[url]['running']:
                 if not sync_loss:
@@ -844,6 +851,11 @@ class ToGo(Plugin):
                 status[url]['retry'] += 1
                 status[url]['ts_error_count'] = 0
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
+
+                if slow_on_retry:
+                    status[url]['download_delay'] += 0.01
+                    logger.info('Increasing download delay')
+
                 queue[tivoIP].insert(1, url)
             else:
                 if status[url]['postprocess'] != 'none':
@@ -865,6 +877,11 @@ class ToGo(Plugin):
                 status[url]['retry'] += 1
                 status[url]['ts_error_count'] = 0
                 logger.info('TS sync losses detected, retrying download (%d)' % status[url]['retry'])
+
+                if slow_on_retry:
+                    status[url]['download_delay'] += 0.01
+                    logger.info('Increasing download delay')
+
                 queue[tivoIP].insert(1, url)
             else:
                 if status[url]['best_file'] and status[url]['postprocess'] != 'none':
@@ -999,7 +1016,7 @@ class ToGo(Plugin):
                                   'postprocess': postprocess, 'postprocess_profile': postprocess_profile,
                                   'postprocess_decrypt': postprocess_decrypt, 'postprocess_delete': postprocess_delete,
                                   'retry': 0, 'ts_max_retries': int(config.get_server('togo_ts_max_retries', 0)),
-                                  'ts_error_count': 0, 'best_file': '', 'best_error_count': 0}
+                                  'ts_error_count': 0, 'best_file': '', 'best_error_count': 0, 'download_delay':0.0}
                 if tivoIP in queue:
                     queue[tivoIP].append(theurl)
                 else:
