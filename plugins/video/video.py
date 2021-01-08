@@ -152,7 +152,8 @@ class Video(Plugin):
         has_tivodecode = bool(config.get_bin('tivodecode'))
 
         use_tivolibre = False
-        if has_tivolibre and bool(config.get_server('tivolibre_upload', True)):
+        tivolibre_upload = bool(config.get_server('tivolibre_upload', 'true') == 'true')
+        if has_tivolibre and tivolibre_upload:
             use_tivolibre = True
 
         if 'Format' in query:

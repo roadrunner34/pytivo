@@ -698,7 +698,7 @@ class ToGo(Plugin):
         retry_download = False
         sync_loss = False
         ts_error_mode = config.get_server('togo_ts_error_mode', 'ignore')
-        slow_on_retry = bool(config.get_server('togo_slow_on_retry', 1))
+        slow_on_retry = bool(config.get_server('togo_slow_on_retry', 'true') == 'true')
         download_delay = float(5 - int(config.get_server('togo_download_speed', 5))) * 0.01;
         download_delay += status[url]['download_delay'];
         logger.info('Download delay set to %f' % download_delay)
