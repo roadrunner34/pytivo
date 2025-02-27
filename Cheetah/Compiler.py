@@ -18,16 +18,15 @@ Last Revision Date: $Date: 2007/10/30 20:17:09 $
 __author__ = "Tavis Rudd <tavis@damnsimple.com>"
 __revision__ = "$Revision: 1.156 $"[11:-2]
 
+import re
 import sys
 import os
 import os.path
 from os.path import getmtime, exists
-import re
-import types
 import time
-import random
+import types
 import warnings
-import __builtin__
+import builtins
 import copy
 
 from Cheetah.Version import Version, VersionTuple
@@ -1188,7 +1187,7 @@ class ClassCompiler(GenUtils):
         elif self._activeMethodsList and hasattr(self._activeMethodsList[-1], name):
             return getattr(self._activeMethodsList[-1], name)
         else:
-            raise AttributeError, name
+            raise AttributeError(name)
 
     def _setupState(self):
         self._classDef = None
@@ -1552,7 +1551,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
         
         if source and file:
             raise TypeError("Cannot compile from a source string AND file.")
-        elif isinstance(file, (str, unicode)): # it's a filename.
+        elif isinstance(file, str): # it's a filename.
             f = open(file) # Raises IOError.
             source = f.read()
             f.close()
@@ -1567,7 +1566,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
             self._fileDirName, self._fileBaseName = os.path.split(self._filePath)
             self._fileBaseNameRoot, self._fileBaseNameExt = os.path.splitext(self._fileBaseName)
 
-        if not isinstance(source, (str,unicode)):
+        if not isinstance(source, str):
             source = str(source)
             # by converting to string here we allow objects such as other Templates
             # to be passed in
@@ -1575,7 +1574,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
         # Handle the #indent directive by converting it to other directives.
         # (Over the long term we'll make it a real directive.)
         if source == "":
-            warnings.warn("You supplied an empty string for the source!", )
+            warnings.warn("You supplied an empty string for the source!")
         
         else:
             unicodeMatch = unicodeDirectiveRE.search(source)
@@ -1587,7 +1586,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
                 source = unicodeDirectiveRE.sub('', source)
                 if isinstance(source, str):
                     encoding = unicodeMatch.group(1) or 'ascii'
-                    source = unicode(source, encoding)
+                    source = str(source.encode(encoding).decode(encoding))
                 
                 #print encoding
 
@@ -1612,7 +1611,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
         elif self._activeClassesList and hasattr(self._activeClassesList[-1], name):
             return getattr(self._activeClassesList[-1], name)
         else:
-            raise AttributeError, name
+            raise AttributeError(name)
 
     def _initializeSettings(self):
         self.updateSettings(copy.deepcopy(DEFAULT_COMPILER_SETTINGS))
@@ -1635,7 +1634,7 @@ class ModuleCompiler(SettingsManager, GenUtils):
             "from os.path import getmtime, exists",
             "import time",
             "import types",
-            "import __builtin__",
+            "import builtins",
             "from Cheetah.Version import MinCompatibleVersion as RequiredCheetahVersion",            
             "from Cheetah.Version import MinCompatibleVersionTuple as RequiredCheetahVersionTuple",
             "from Cheetah.Template import Template",

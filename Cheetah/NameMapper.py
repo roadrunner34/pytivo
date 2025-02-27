@@ -143,10 +143,25 @@ from __future__ import generators
 __author__ = "Tavis Rudd <tavis@damnsimple.com>," +\
              "\nChuck Esterbrook <echuck@mindspring.com>"
 __revision__ = "$Revision: 1.30 $"[11:-2]
+import re
+import sys
+import os
+import os.path
+import time
 import types
-from types import StringType, InstanceType, ClassType, TypeType
-from pprint import pformat
 import inspect
+from io import StringIO
+import traceback
+import pprint
+import builtins
+
+from Cheetah.Unspecified import Unspecified
+
+# Python 3 compatibility
+StringType = str
+InstanceType = type
+ClassType = type
+TypeType = type
 
 _INCLUDE_NAMESPACE_REPR_IN_NOTFOUND_EXCEPTIONS = False
 _ALLOW_WRAPPING_OF_NOTFOUND_EXCEPTIONS = True
@@ -224,15 +239,17 @@ def _valueForName(obj, name, executeCallables=False):
 def valueForName(obj, name, executeCallables=False):
     try:
         return _valueForName(obj, name, executeCallables)
-    except NotFound, e:
+    except NotFound as e:
         _wrapNotFoundException(e, fullName=name, namespace=obj)
 
 def valueFromSearchList(searchList, name, executeCallables=False):
     key = name.split('.')[0]
     for namespace in searchList:
         if hasKey(namespace, key):
-            return _valueForName(namespace, name,
-                                executeCallables=executeCallables)
+            try:
+                return _valueForName(namespace, name, executeCallables=executeCallables)
+            except NotFound as e:
+                _wrapNotFoundException(e, fullName=name, namespace=searchList)
     _raiseNotFoundException(key, searchList)
 
 def _namespaces(callerFrame, searchList=None):
@@ -248,7 +265,7 @@ def valueFromFrameOrSearchList(searchList, name, executeCallables=False,
     def __valueForName():
         try:
             return _valueForName(namespace, name, executeCallables=executeCallables)
-        except NotFound, e:
+        except NotFound as e:
             _wrapNotFoundException(e, fullName=name, namespace=searchList)
     try:
         if not frame:
@@ -271,6 +288,8 @@ def valueFromFrame(name, executeCallables=False, frame=None):
                                           name=name,
                                           executeCallables=executeCallables,
                                           frame=frame)
+    except NotFound as e:
+        _wrapNotFoundException(e, fullName=name, namespace=None)
     finally:
         del frame
 
@@ -340,13 +359,13 @@ def example():
         }
     b = 'this is local b'
 
-    print valueForKey(a.dic,'subDict')
-    print valueForName(a, 'dic.item')
-    print valueForName(vars(), 'b')
-    print valueForName(__builtins__, 'dir')()
-    print valueForName(vars(), 'a.classVar')
-    print valueForName(vars(), 'a.dic.func', executeCallables=True)
-    print valueForName(vars(), 'a.method2.item1', executeCallables=True)
+    print(valueForKey(a.dic,'subDict'))
+    print(valueForName(a, 'dic.item'))
+    print(valueForName(vars(), 'b'))
+    print(valueForName(__builtins__, 'dir')())
+    print(valueForName(vars(), 'a.classVar'))
+    print(valueForName(vars(), 'a.dic.func', executeCallables=True))
+    print(valueForName(vars(), 'a.method2.item1', executeCallables=True))
 
 if __name__ == '__main__':
     example()

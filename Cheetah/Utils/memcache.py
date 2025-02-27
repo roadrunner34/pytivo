@@ -60,6 +60,9 @@ __license__   = "Python"
 class _Error(Exception):
     pass
 
+class _ConnectionError(_Error):
+    pass
+
 class Client:
     """
     Object representing a pool of memcache servers.
@@ -197,7 +200,7 @@ class Client:
         if not server:
             return 0
         self._statlog('delete')
-        if time != None:
+        if time is not None:
             cmd = "delete %s %d" % (key, time)
         else:
             cmd = "delete %s" % key
@@ -205,8 +208,8 @@ class Client:
         try:
             server.send_cmd(cmd)
             server.expect("DELETED")
-        except socket.error, msg:
-            server.mark_dead(msg[1])
+        except socket.error as msg:
+            server.mark_dead(msg)
             return 0
         return 1
 
@@ -257,8 +260,8 @@ class Client:
             server.send_cmd(cmd)
             line = server.readline()
             return int(line)
-        except socket.error, msg:
-            server.mark_dead(msg[1])
+        except socket.error as msg:
+            server.mark_dead(msg)
             return None
 
     def add(self, key, val, time=0):
@@ -299,30 +302,27 @@ class Client:
         server, key = self._get_server(key)
         if not server:
             return 0
-
         self._statlog(cmd)
-
-        flags = 0
-        if isinstance(val, types.StringTypes):
-            pass
-        elif isinstance(val, int):
-            flags |= Client._FLAG_INTEGER
-            val = "%d" % val
-        elif isinstance(val, long):
-            flags |= Client._FLAG_LONG
-            val = "%d" % val
-        elif self._usePickle:
-            flags |= Client._FLAG_PICKLE
-            val = pickle.dumps(val, 2)
-        else:
-            pass
         
-        fullcmd = "%s %s %d %d %d\r\n%s" % (cmd, key, flags, time, len(val), val)
+        flags = 0
+        if isinstance(val, str):
+            val = val.encode('utf-8')
+        elif isinstance(val, int):
+            flags |= self._FLAG_INTEGER
+            val = str(val).encode('utf-8')
+        elif isinstance(val, long):
+            flags |= self._FLAG_LONG
+            val = str(val).encode('utf-8')
+        else:
+            flags |= self._FLAG_PICKLE
+            val = pickle.dumps(val, 2)
+        
+        fullcmd = ("%s %s %d %d %d\r\n" % (cmd, key, flags, time, len(val))).encode('utf-8') + val
         try:
             server.send_cmd(fullcmd)
             server.expect("STORED")
-        except socket.error, msg:
-            server.mark_dead(msg[1])
+        except socket.error as msg:
+            server.mark_dead(msg)
             return 0
         return 1
 
@@ -344,9 +344,7 @@ class Client:
                 return None
             value = self._recv_value(server, flags, rlen)
             server.expect("END")
-        except (_Error, socket.error), msg:
-            if type(msg) is types.TupleType:
-                msg = msg[1]
+        except (_Error, socket.error) as msg:
             server.mark_dead(msg)
             return None
         return value
@@ -379,7 +377,7 @@ class Client:
             server, key = self._get_server(key)
             if not server:
                 continue
-            if not server_keys.has_key(server):
+            if server not in server_keys:
                 server_keys[server] = []
             server_keys[server].append(key)
 
@@ -387,9 +385,10 @@ class Client:
         dead_servers = []
         for server in server_keys.keys():
             try:
-                server.send_cmd("get %s" % " ".join(server_keys[server]))
-            except socket.error, msg:
-                server.mark_dead(msg[1])
+                bigcmd = "get %s" % " ".join(server_keys[server])
+                server.send_cmd(bigcmd)
+            except socket.error as msg:
+                server.mark_dead(msg)
                 dead_servers.append(server)
 
         # if any servers died on the way, don't expect them to respond.
@@ -407,15 +406,15 @@ class Client:
                         val = self._recv_value(server, flags, rlen)
                         retvals[rkey] = val
                     line = server.readline()
-            except (_Error, socket.error), msg:
+            except (_Error, socket.error) as msg:
                 server.mark_dead(msg)
         return retvals
 
     def _expectvalue(self, server, line=None):
         if not line:
             line = server.readline()
-
-        if line[:5] == 'VALUE':
+            
+        if line and line[:6] == 'VALUE ':
             resp, rkey, flags, len = line.split()
             flags = int(flags)
             rlen = int(len)
@@ -429,44 +428,38 @@ class Client:
         if len(buf) != rlen:
             raise _Error("received %d bytes when expecting %d" % (len(buf), rlen))
 
-        if len(buf) == rlen:
-            buf = buf[:-2]  # strip \r\n
+        if len(buf) == 0:
+            return None
 
-        if flags == 0:
-            val = buf
-        elif flags & Client._FLAG_INTEGER:
-            val = int(buf)
-        elif flags & Client._FLAG_LONG:
-            val = long(buf)
-        elif self._usePickle and flags & Client._FLAG_PICKLE:
-            try:
-                val = pickle.loads(buf)
-            except:
-                self.debuglog('Pickle error...\n')
-                val = None
+        if flags & self._FLAG_COMPRESSED:
+            buf = decompress(buf)
+
+        if flags & self._FLAG_INTEGER:
+            return int(buf.decode('utf-8'))
+        elif flags & self._FLAG_LONG:
+            return int(buf.decode('utf-8'))  # Python 3 has no long type
+        elif flags & self._FLAG_PICKLE:
+            return pickle.loads(buf)
         else:
-            self.debuglog("unknown flags on get: %x\n" % flags)
-
-        return val
+            return buf.decode('utf-8')
 
 class _Host:
     _DEAD_RETRY = 30  # number of seconds before retrying a dead server.
 
     def __init__(self, host, debugfunc=None):
-        if isinstance(host, types.TupleType):
-            host = host[0]
-            self.weight = host[1]
+        if isinstance(host, tuple):
+            host, self.weight = host
         else:
             self.weight = 1
 
-        if host.find(":") > 0:
-            self.ip, self.port = host.split(":")
-            self.port = int(self.port)
+        if host.find(':') > 0:
+            self.ip, port = host.split(':')
+            self.port = int(port)
         else:
             self.ip, self.port = host, 11211
 
         if not debugfunc:
-            debugfunc = lambda x: x
+            debugfunc = lambda x: None
         self.debuglog = debugfunc
 
         self.deaduntil = 0
@@ -479,105 +472,88 @@ class _Host:
         return 0
 
     def connect(self):
-        if self._get_socket():
+        if self._check_dead():
+            return 0
+        if self.socket:
             return 1
-        return 0
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((self.ip, self.port))
+        except socket.error as msg:
+            self.mark_dead(msg)
+            return 0
+        self.socket = sock
+        return 1
 
     def mark_dead(self, reason):
         self.debuglog("MemCache: %s: %s.  Marking dead." % (self, reason))
-        self.deaduntil = time.time() + _Host._DEAD_RETRY
+        self.deaduntil = time.time() + self._DEAD_RETRY
         self.close_socket()
-        
-    def _get_socket(self):
-        if self._check_dead():
-            return None
-        if self.socket:
-            return self.socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Python 2.3-ism:  s.settimeout(1)
-        try:
-            s.connect((self.ip, self.port))
-        except socket.error, msg:
-            self.mark_dead("connect: %s" % msg[1])
-            return None
-        self.socket = s
-        return s
     
     def close_socket(self):
         if self.socket:
             self.socket.close()
             self.socket = None
-
+    
     def send_cmd(self, cmd):
-        if len(cmd) > 100:
+        if isinstance(cmd, bytes):
             self.socket.sendall(cmd)
-            self.socket.sendall('\r\n')
         else:
-            self.socket.sendall(cmd + '\r\n')
-
+            self.socket.sendall(cmd.encode('utf-8') + b'\r\n')
+    
     def readline(self):
-        buffers = ''
-        recv = self.socket.recv
-        while 1:
-            data = recv(1)
-            if not data:
-                self.mark_dead('Connection closed while reading from %s'
-                        % repr(self))
-                break
-            if data == '\n' and buffers and buffers[-1] == '\r':
-                return(buffers[:-1])
-            buffers = buffers + data
-        return(buffers)
+        buf = []
+        while True:
+            c = self.socket.recv(1)
+            if not c:
+                raise _Error("Connection closed on read")
+            if c == b'\r':
+                c = self.socket.recv(1)
+                if c == b'\n':
+                    break
+            buf.append(c)
+        return b''.join(buf).decode('utf-8')
 
     def expect(self, text):
         line = self.readline()
         if line != text:
-            self.debuglog("while expecting '%s', got unexpected response '%s'" % (text, line))
-        return line
-    
+            raise _Error("Expected '%s' but got '%s'" % (text, line))
+
     def recv(self, rlen):
-        buf = ''
-        recv = self.socket.recv
+        buf = []
         while len(buf) < rlen:
-            buf = buf + recv(rlen - len(buf))
-        return buf
+            c = self.socket.recv(min(rlen - len(buf), 2048))
+            if not c:
+                raise _Error("Connection closed on read")
+            buf.append(c)
+        return b''.join(buf)
 
     def __str__(self):
-        d = ''
+        deadstr = ''
         if self.deaduntil:
-            d = " (dead until %d)" % self.deaduntil
-        return "%s:%d%s" % (self.ip, self.port, d)
+            deadstr = ' (dead until %d)' % self.deaduntil
+        return '%s:%d%s' % (self.ip, self.port, deadstr)
 
 def _doctest():
-    import doctest, memcache
+    import doctest
+    import memcache
     servers = ["127.0.0.1:11211"]
     mc = Client(servers, debug=1)
-    globs = {"mc": mc}
-    return doctest.testmod(memcache, globs=globs)
-
-if __name__ == "__main__":
-    print "Testing docstrings..."
-    _doctest()
-    print "Running tests:"
-    print
-    #servers = ["127.0.0.1:11211", "127.0.0.1:11212"]
-    servers = ["127.0.0.1:11211"]
-    mc = Client(servers, debug=1)
-
+    
     def to_s(val):
-        if not isinstance(val, types.StringTypes):
-            return "%s (%s)" % (val, type(val))
-        return "%s" % val
+        """Convert 'val' to string, complete with quotes if string"""
+        if isinstance(val, str):
+            return repr(val)
+        return str(val)
+
     def test_setget(key, val):
-        print "Testing set/get {'%s': %s} ..." % (to_s(key), to_s(val)),
+        """Testing set/get with key='%s', val='%s'""" % (to_s(key), to_s(val))
         mc.set(key, val)
         newval = mc.get(key)
         if newval == val:
-            print "OK"
-            return 1
+            print("OK")
         else:
-            print "FAIL"
-            return 0
+            print("FAIL: key=%s, val=%s, newval=%s" % (to_s(key), to_s(val), to_s(newval)))
 
     class FooStruct:
         def __init__(self):
@@ -588,38 +564,16 @@ if __name__ == "__main__":
             if isinstance(other, FooStruct):
                 return self.bar == other.bar
             return 0
-        
+
     test_setget("a_string", "some random string")
     test_setget("an_integer", 42)
-    if test_setget("long", long(1<<30)):
-        print "Testing delete ...",
-        if mc.delete("long"):
-            print "OK"
-        else:
-            print "FAIL"
-    print "Testing get_multi ...",
-    print mc.get_multi(["a_string", "an_integer"])
+    test_setget("a_long", 1234567890)
+    test_setget("a_list", [1, 2, 3, 4, 5])
+    test_setget("a_tuple", (1, 2, 3, 4, 5))
+    test_setget("a_dict", {"a": 1, "b": 2, "c": 3})
+    test_setget("a_object", FooStruct())
 
-    print "Testing get(unknown value) ...",
-    print to_s(mc.get("unknown_value"))
-
-    f = FooStruct()
-    test_setget("foostruct", f)
-
-    print "Testing incr ...",
-    x = mc.incr("an_integer", 1)
-    if x == 43:
-        print "OK"
-    else:
-        print "FAIL"
-
-    print "Testing decr ...",
-    x = mc.decr("an_integer", 1)
-    if x == 42:
-        print "OK"
-    else:
-        print "FAIL"
-
-
+if __name__ == '__main__':
+    _doctest()
 
 # vim: ts=4 sw=4 et :

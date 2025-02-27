@@ -1,15 +1,23 @@
-import os.path
+#!/usr/bin/env python
+
+"""Provides a function that converts a Cheetah template path to a Python module name."""
+
 import string
 
-l = ['_'] * 256
-for c in string.digits + string.letters:
-    l[ord(c)] = c
-_pathNameTransChars = string.join(l, '')
-del l, c
+validChars = string.ascii_letters + string.digits + '_'
+validFirstChars = string.ascii_letters + '_'
 
-def convertTmplPathToModuleName(tmplPath,
-                                _pathNameTransChars=_pathNameTransChars,
-                                splitdrive=os.path.splitdrive,
-                                translate=string.translate,
-                                ):
-    return translate(splitdrive(tmplPath)[1], _pathNameTransChars)
+def convertTmplPathToModuleName(path):
+    """Converts a Cheetah template path to a valid Python module name."""
+    
+    name = path.replace('/', '_').replace('\\', '_').replace('.', '_').replace('-', '_')
+    # ensure that all chars are valid
+    validatedName = []
+    for i, c in enumerate(name):
+        if i == 0 and c not in validFirstChars:
+            validatedName.append('_')
+        elif c not in validChars:
+            validatedName.append('_')
+        else:
+            validatedName.append(c)
+    return ''.join(validatedName)

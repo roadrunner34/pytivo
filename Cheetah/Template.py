@@ -20,23 +20,25 @@ __revision__ = "$Revision: 1.185 $"[11:-2]
 ## DEPENDENCIES
 import sys                        # used in the error handling code
 import re                         # used to define the internal delims regex
-import new                        # used to bind methods and create dummy modules
 import string
 import os.path
 import time                       # used in the cache refresh code
 from random import randrange
 import imp
 import inspect
-import StringIO
+from io import StringIO
 import traceback
 import pprint
 import cgi                # Used by .webInput() if the template is a CGI script.
 import types 
-from types import StringType, ClassType
+from types import ModuleType, MethodType
+
+# Python 3 compatibility
 try:
     from types import StringTypes
 except ImportError:
-    StringTypes = (types.StringType,types.UnicodeType)
+    StringTypes = (str,)
+
 try:
     from types import BooleanType
     boolTypeAvailable = True
@@ -48,7 +50,6 @@ try:
 except ImportError:
     class Lock:
         def acquire(self): pass
-        def release(self): pass
 
 from Cheetah.Version import convertVersionStringToTuple, MinCompatibleVersionTuple
 from Cheetah.Version import MinCompatibleVersion
@@ -587,21 +588,43 @@ class Template(Servlet):
         try:
             vt = VerifyType.VerifyType
             vtc = VerifyType.VerifyTypeClass
-            N = types.NoneType; S = types.StringType; U = types.UnicodeType
-            D = types.DictType; F = types.FileType
-            C = types.ClassType;  M = types.ModuleType
-            I = types.IntType
+            N = type(None)
+            S = str
+            U = str  # In Python 3, str is Unicode
+            L = list
+            T = tuple
+            D = dict
+            F = type(open('', 'r'))  # file type
+            C = type
+            M = type(sys)  # module type
+            I = int
 
             if boolTypeAvailable:         
-                B = types.BooleanType
+                B = bool
             
             vt(source, 'source', [N,S,U], 'string or None')
             vt(file, 'file',[N,S,U,F], 'string, file-like object, or None')
 
+            if type(filter) in StringTypes:
+                pass  # String name of the filter
+            elif isinstance(filter, type):
+                pass  # Actual filter class
+
+            if type(errorCatcher) in StringTypes:
+                pass  # String name of the error catcher
+            elif isinstance(errorCatcher, type):
+                pass  # Actual error catcher class
+
+            if not isinstance(searchList, (list, tuple)) and searchList is not None:
+                searchList = [searchList]
+
+            if not isinstance(namespaces, (list, tuple)) and namespaces is not None:
+                namespaces = [namespaces]
+
             baseclass = valOrDefault(baseclass, klass._CHEETAH_defaultBaseclassForTemplates)
             if isinstance(baseclass, Template):
                 baseclass = baseclass.__class__
-            vt(baseclass, 'baseclass', [N,S,C,type], 'string, class or None')
+            vt(baseclass, 'baseclass', [N,S,C], 'string, class or None')
 
             cacheCompilationResults = valOrDefault(
                 cacheCompilationResults, klass._CHEETAH_cacheCompilationResults)
@@ -628,7 +651,7 @@ class Template(Servlet):
             vt(moduleName, 'moduleName', [N,S], 'string or None')
             __orig_file__ = None
             if not moduleName:
-                if file and type(file) in StringTypes:
+                if file and isinstance(file, StringTypes):
                     moduleName = convertTmplPathToModuleName(file)
                     __orig_file__ = file
                 else:
@@ -655,7 +678,7 @@ class Template(Servlet):
                 cacheDirForModuleFiles, klass._CHEETAH_cacheDirForModuleFiles)
             vt(cacheDirForModuleFiles, 'cacheDirForModuleFiles', [N,S], 'string or None')
 
-        except TypeError, reason:
+        except TypeError as reason:
             raise TypeError(reason)
 
         ##################################################           
@@ -751,7 +774,7 @@ class Template(Servlet):
                         # @@ TR: should this optionally raise?
                         traceback.print_exc(file=sys.stderr)
 
-                mod = new.module(uniqueModuleName)
+                mod = ModuleType(uniqueModuleName)
                 if moduleGlobals:
                     for k, v in moduleGlobals.items():
                         setattr(mod, k, v)
@@ -765,19 +788,10 @@ class Template(Servlet):
                 ##
                 try:
                     co = compile(generatedModuleCode, __file__, 'exec')
-                    exec co in mod.__dict__
-                except SyntaxError, e:
-                    try:
-                        parseError = genParserErrorFromPythonException(
-                            source, file, generatedModuleCode, exception=e)
-                    except:
-                        traceback.print_exc()
-                        updateLinecache(__file__, generatedModuleCode)
-                        e.generatedModuleCode = generatedModuleCode
-                        raise e
-                    else:
-                        raise parseError
-                except Exception, e:
+                    exec(co, mod.__dict__)
+                except SyntaxError as e:
+                    raise SyntaxError(genParserErrorFromPythonException(source, file, generatedModuleCode, e))
+                except Exception as e:
                     updateLinecache(__file__, generatedModuleCode)
                     e.generatedModuleCode = generatedModuleCode
                     raise
@@ -958,7 +972,7 @@ class Template(Servlet):
         for methodname in klass._CHEETAH_requiredCheetahMethods:
             if not hasattr(concreteTemplateClass, methodname):
                 method = getattr(Template, methodname)
-                newMethod = new.instancemethod(method.im_func, None, concreteTemplateClass)
+                newMethod = MethodType(method.im_func, None, concreteTemplateClass)
                 #print methodname, method
                 setattr(concreteTemplateClass, methodname, newMethod)
 
@@ -992,7 +1006,7 @@ class Template(Servlet):
                     else:
                         return super(self.__class__, self).__str__()
                     
-            __str__ = new.instancemethod(__str__, None, concreteTemplateClass)
+            __str__ = MethodType(__str__, None, concreteTemplateClass)
             setattr(concreteTemplateClass, '__str__', __str__)
                 
     _addCheetahPlumbingCodeToClass = classmethod(_addCheetahPlumbingCodeToClass)
@@ -1145,7 +1159,7 @@ class Template(Servlet):
             if compilerSettings is not Unspecified:
                 vt(compilerSettings, 'compilerSettings', [D], 'dictionary')
 
-        except TypeError, reason:
+        except TypeError as reason:
             # Re-raise the exception here so that the traceback will end in
             # this function rather than in some utility function.
             raise TypeError(reason)
@@ -1769,7 +1783,7 @@ class Template(Servlet):
         # 'dic = super(ThisClass, self).webInput(names, namesMulti, ...)'
         # and then the code below.
         if debug:
-           print "<PRE>\n" + pprint.pformat(dic) + "\n</PRE>\n\n"
+           print("<PRE>\n" + pprint.pformat(dic) + "\n</PRE>\n\n")
         self.searchList().insert(0, dic)
         return dic
 

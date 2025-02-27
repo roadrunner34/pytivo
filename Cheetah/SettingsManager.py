@@ -21,44 +21,32 @@ __revision__ = "$Revision: 1.29 $"[11:-2]
 import sys
 import os.path
 import copy as copyModule
-from ConfigParser import ConfigParser 
+from configparser import ConfigParser 
 import re
-from tokenize import Intnumber, Floatnumber, Number
-from types import *
 import types
-import new
 import tempfile
 import time
-from StringIO import StringIO # not cStringIO because of unicode support
-import imp                 # used by SettingsManager.updateSettingsFromPySrcFile()
+from io import StringIO
+import imp
 
 try:
-    import threading
-    from threading import Lock  # used for thread lock on sys.path manipulations
-except:
-    ## provide a dummy for non-threading Python systems
+    from threading import Lock
+except ImportError:
     class Lock:
-        def acquire(self):
-            pass
-        def release(self):
-            pass
+        def acquire(self): pass
+        def release(self): pass
 
 class BaseErrorClass: pass
 
 ##################################################
 ## CONSTANTS & GLOBALS ##
 
-try:
-    True,False
-except NameError:
-    True, False = (1==1),(1==0)
+# Python number regex pattern
+numberRE = re.compile(r'[0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?')
+complexNumberRE = re.compile(r'[\(]*[0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?[ \t]*\+[ \t]*[0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?[\)]*')
 
-numberRE = re.compile(Number)
-complexNumberRE = re.compile('[\(]*' +Number + r'[ \t]*\+[ \t]*' + Number + '[\)]*')
-
-convertableToStrTypes = (StringType, IntType, FloatType,
-                         LongType, ComplexType, NoneType,
-                         UnicodeType)
+convertableToStrTypes = (str, int, float,
+                        complex, type(None))
 
 ##################################################
 ## FUNCTIONS ##
@@ -76,10 +64,8 @@ def mergeNestedDictionaries(dict1, dict2, copy=False, deepcopy=False):
     elif deepcopy:
         dict1 = copyModule.deepcopy(dict1)
         
-    for key,val in dict2.items():
-        if dict1.has_key(key) and type(val) == types.DictType and \
-           type(dict1[key]) == types.DictType:
-            
+    for key, val in dict2.items():
+        if key in dict1 and isinstance(val, dict) and isinstance(dict1[key], dict):
             dict1[key] = mergeNestedDictionaries(dict1[key], val)
         else:
             dict1[key] = val
@@ -281,7 +267,7 @@ class _SettingsCollector:
         
         for base in container.__bases__:
             for k, v in base.__dict__.items():
-                if not attrs.has_key(k):
+                if k not in attrs:
                     attrs[k] = v
         return attrs
 
@@ -335,9 +321,9 @@ class _SettingsCollector:
                        'SettingsContainer':SettingsContainer,
                        }
         newSettings = {'self':self}
-        exec theString in globalsDict, newSettings
+        exec(theString, globalsDict, newSettings)
         del newSettings['self'], newSettings['True'], newSettings['False']
-        module = new.module('temp_settings_module')
+        module = types.ModuleType('temp_settings_module')
         module.__dict__.update(newSettings)
         return self.readSettingsFromModule(module)
 
@@ -472,7 +458,7 @@ class SettingsManager(_SettingsCollector):
 
     def hasSetting(self, key):
         """True/False"""
-        return self._settings.has_key(key)
+        return key in self._settings
 
     def setSetting(self, name, value):
         """Set a setting in self._settings."""
