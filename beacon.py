@@ -5,7 +5,7 @@ import struct
 import time
 import uuid
 from threading import Timer
-from urllib import quote
+from urllib.parse import quote
 
 import zeroconf
 
@@ -181,8 +181,8 @@ class Beacon:
                         if result < 0:
                             break
                         packet = packet[result:]
-                except Exception, e:
-                    print e
+                except Exception as e:
+                    print(e)
 
     def start(self):
         self.send_beacon()

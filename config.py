@@ -9,6 +9,11 @@ import sys
 import uuid
 from ConfigParser import NoOptionError
 
+try:
+    import configparser as ConfigParser
+except ImportError:
+    import ConfigParser
+
 # determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
 if getattr(sys, 'frozen', False):
@@ -47,8 +52,8 @@ def init(argv, in_service=False):
 
     try:
         opts, _ = getopt.getopt(argv, 'c:e:', ['config=', 'extraconf='])
-    except getopt.GetoptError, msg:
-        print msg
+    except getopt.GetoptError as msg:
+        print(msg)
 
     for opt, value in opts:
         if opt in ('-c', '--config'):

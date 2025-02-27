@@ -69,7 +69,7 @@ if __name__ == '__main__':
             servicemanager.Initialize()
             servicemanager.PrepareToHostSingle(PyTivoService)
             servicemanager.StartServiceCtrlDispatcher()
-        except win32service.error, details:
+        except win32service.error as details:
             if details[0] == winerror.ERROR_FAILED_SERVICE_CONTROLLER_CONNECT:
                 win32serviceutil.usage()
     else:

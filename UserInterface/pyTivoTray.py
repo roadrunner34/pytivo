@@ -5,8 +5,9 @@ import threading
 import time
 import platform
 import webbrowser
-import ConfigParser
-import urllib2
+import configparser as ConfigParser
+from urllib import request as urllib2
+from urllib.parse import quote, unquote_plus
 import socket
 import json
 from threading import Timer
@@ -52,7 +53,7 @@ def LoadConfigFile():
     if not os.path.isfile(configFile):
         if getattr(sys, 'frozen', False):
             if isMacOSX:
-                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))) # pyTivo tray is inside a .app bundle
+                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivo.app')
             else:
                 configDir = os.path.dirname(sys.executable)
         else:
@@ -62,7 +63,7 @@ def LoadConfigFile():
     try:
         config.read(configFile)
     except:
-        print 'No config file'
+        print('No config file')
 
     return config
 
@@ -90,7 +91,7 @@ def SaveConfigFile(config):
     if not configFile:
         if getattr(sys, 'frozen', False):
             if isMacOSX:
-                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))) # pyTivo tray is inside a .app bundle
+                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivo.app')
             else:
                 configDir = os.path.dirname(sys.executable)
         else:
@@ -171,8 +172,12 @@ def GetDownloadQueueCount():
             return int(response['count'])
         else:
             return 0
-    except:
-        return 0
+    except urllib2.URLError as e:
+        isError = True
+    except socket.timeout as e:
+        isError = True
+
+    return 0
 
 def GetUploadQueueCount():
     try:
@@ -182,14 +187,18 @@ def GetUploadQueueCount():
             return int(response['count'])
         else:
             return 0
-    except:
-        return 0
+    except urllib2.URLError as e:
+        isError = True
+    except socket.timeout as e:
+        isError = True
+
+    return 0
 
 
 def CancelAllTransfers():
     try:
         urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=UnqueueAll&Container=ToGo')
-    except:
+    except urllib2.URLError as e:
         pass
 
 
@@ -199,7 +208,7 @@ def CheckUserIsAdmin():
         try:
             return ctypes.windll.shell32.IsUserAnAdmin()
         except:
-            print 'Admin check failed, assuming not an admin.'
+            print('Admin check failed, assuming not an admin.')
             return False
 
     return False
@@ -213,9 +222,9 @@ def RestartAsAdmin():
             params = '--show-desktop'
 
         if getattr(sys, 'frozen', False):
-            ctypes.windll.shell32.ShellExecuteW(None, u'runas', unicode(sys.executable), unicode(params), None, 1)
+            ctypes.windll.shell32.ShellExecuteW(None, 'runas', sys.executable, params, None, 1)
         else:
-            ctypes.windll.shell32.ShellExecuteW(None, u'runas', unicode(sys.executable), unicode('\"'+ __file__+'\" ' + params), None, 1)
+            ctypes.windll.shell32.ShellExecuteW(None, 'runas', sys.executable, '\"'+ __file__+'\" ' + params, None, 1)
 
 
 class pyTivoTray(wx.TaskBarIcon):
@@ -224,7 +233,7 @@ class pyTivoTray(wx.TaskBarIcon):
             self.mutexName = 'pyTivoTray_{BF213038-4019-49C0-A0AD-9D4419852647}'
             self.mutex = CreateMutex(None, False, self.mutexName)
             if (GetLastError() == ERROR_ALREADY_EXISTS):
-                print 'pyTivoTray already running'
+                print('pyTivoTray already running')
                 sys.exit()
 
         self.isPyTivoService = False
@@ -237,7 +246,7 @@ class pyTivoTray(wx.TaskBarIcon):
             else:
                 self.isPyTivoService = True
                 if not CheckUserIsAdmin():
-                    print 'Must be run elevated to control service'
+                    print('Must be run elevated to control service')
 
                     if self.mutex:
                         CloseHandle(self.mutex)
@@ -303,7 +312,7 @@ class pyTivoTray(wx.TaskBarIcon):
         if getattr(sys, 'frozen', False):
             cliOptions = '/setport/' + GetPort()
             if isMacOSX:
-                pyTivoDesktopPath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivoDesktop.app')
+                pyTivoDesktopPath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable))))), 'pyTivoDesktop.app')
                 pyTivoDesktopProcess = subprocess.Popen('open -a ' + pyTivoDesktopPath + ' --args ' + cliOptions, shell=True)
             elif isWindows:
                 pyTivoDesktopPath = os.path.join(os.path.dirname(sys.executable), 'desktop', 'pyTivoDesktop')
@@ -423,9 +432,9 @@ class pyTivoTray(wx.TaskBarIcon):
             elif not silentCheck:
                 wx.CallAfter(self.PromptBetaUpdate, False, '', False)
 
-        except urllib2.URLError, e:
+        except urllib2.URLError as e:
             isError = True
-        except socket.timeout, e:
+        except socket.timeout as e:
             isError = True
 
         if isError:
@@ -473,9 +482,9 @@ class pyTivoTray(wx.TaskBarIcon):
                     if not silentCheck:
                         wx.CallAfter(self.PromptVersionUpdate, False, '', False)
 
-        except urllib2.URLError, e:
+        except urllib2.URLError as e:
             isError = True
-        except socket.timeout, e:
+        except socket.timeout as e:
             isError = True
 
         if isError:
@@ -519,7 +528,7 @@ class pyTivoTray(wx.TaskBarIcon):
                         return
 
                     win32serviceutil.StartService('pyTivo')
-                except Exception, msg:
+                except Exception as msg:
                     pass
 
 
@@ -614,7 +623,7 @@ class pyTivoTray(wx.TaskBarIcon):
         else:
             if isMacOSX:
                 logDir = os.path.dirname(os.path.dirname(
-                    os.path.dirname(os.path.dirname(sys.executable))))  # pyTivo tray is inside a .app bundle
+                    os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))))  # pyTivo tray is inside a .app bundle
             else:
                 logDir = os.path.dirname(sys.executable)
 

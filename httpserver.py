@@ -93,7 +93,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
         try:
             BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request, client_address, server)
-        except Exception, msg:
+        except Exception as msg:
             self.server.logger.info(msg)
 
     def setup(self):
@@ -335,9 +335,12 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 mime = GetPlugin(settings['type']).CONTENT_TYPE
                 if mime.split('/')[1] in ('tivo-videos', 'tivo-music',
                                           'tivo-photos'):
-                    settings['content_type'] = mime
-                    tsncontainers.append((section, settings))
-            except Exception, msg:
+                    try:
+                        settings['content_type'] = mime
+                        tsncontainers.append((section, settings))
+                    except Exception as msg:
+                        self.server.logger.error(section + ' - ' + str(msg))
+            except Exception as msg:
                 self.server.logger.error(section + ' - ' + str(msg))
         t = Template(file=os.path.join(SCRIPTDIR, 'templates',
                                        'root_container.tmpl'),

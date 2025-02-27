@@ -27,8 +27,7 @@ def GetPlugin(name):
         plugin = getattr(module, module.CLASS_NAME)()
         return plugin
     except ImportError:
-        print 'Error no', name, 'plugin exists. Check the type ' \
-        'setting for your share.'
+        print('Error no {} plugin exists. Check the type setting for your share.'.format(name))
         return Error
 
 class EncodeUnicode(Filter):
