@@ -1,4 +1,3 @@
-import ConfigParser
 import getopt
 import logging
 import logging.config
@@ -7,12 +6,13 @@ import re
 import socket
 import sys
 import uuid
-from ConfigParser import NoOptionError
 
 try:
     import configparser as ConfigParser
 except ImportError:
     import ConfigParser
+
+from configparser import NoOptionError
 
 # determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)

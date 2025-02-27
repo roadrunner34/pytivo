@@ -84,7 +84,7 @@ class MaxLen(Filter):
     def filter(self, val, **kw):
         """Replace None with '' and cut off at maxlen."""
         
-    	output = super(MaxLen, self).filter(val, **kw)
+        output = super(MaxLen, self).filter(val, **kw)
         if kw.has_key('maxlen') and len(output) > kw['maxlen']:
             return output[:kw['maxlen']]
         return output
@@ -93,7 +93,7 @@ class WebSafe(Filter):
     """Escape HTML entities in $placeholders.
     """
     def filter(self, val, **kw):
-    	s = super(WebSafe, self).filter(val, **kw)
+        s = super(WebSafe, self).filter(val, **kw)
         # These substitutions are copied from cgi.escape().
         s = s.replace("&", "&amp;") # Must be done first!
         s = s.replace("<", "&lt;")
@@ -128,7 +128,7 @@ class Strip(Filter):
     with the proposed #sed directive (which has not been ratified yet.)
     """
     def filter(self, val, **kw):
-    	s = super(Strip, self).filter(val, **kw)
+        s = super(Strip, self).filter(val, **kw)
         result = []
         start = 0   # The current line will be s[start:end].
         while 1: # Loop through each line.
@@ -151,7 +151,7 @@ class StripSqueeze(Filter):
     input is joined into one ling line with NO trailing newline.
     """
     def filter(self, val, **kw):
-    	s = super(StripSqueeze, self).filter(val, **kw)
+        s = super(StripSqueeze, self).filter(val, **kw)
         s = s.split()
         return " ".join(s)
     
@@ -161,15 +161,15 @@ class StripSqueeze(Filter):
 def test():
     s1 = "abc <=> &"
     s2 = "   asdf  \n\t  1  2    3\n"
-    print "WebSafe INPUT:", `s1`
-    print "      WebSafe:", `WebSafe().filter(s1)`
+    print("WebSafe INPUT:", repr(s1))
+    print("      WebSafe:", repr(WebSafe().filter(s1)))
     
-    print
-    print " Strip INPUT:", `s2`
-    print "       Strip:", `Strip().filter(s2)`
-    print "StripSqueeze:", `StripSqueeze().filter(s2)`
+    print()
+    print(" Strip INPUT:", repr(s2))
+    print("       Strip:", repr(Strip().filter(s2)))
+    print("StripSqueeze:", repr(StripSqueeze().filter(s2)))
 
-    print "Unicode:", `EncodeUnicode().filter(u'aoeu12345\u1234')`
+    print("Unicode:", repr(EncodeUnicode().filter(u'aoeu12345\u1234')))
     
 if __name__ == "__main__":  test()
     

@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import subprocess
-from urllib import quote, unquote
+from urllib.parse import quote, unquote
 
 from Cheetah.Template import Template
 

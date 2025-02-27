@@ -2,7 +2,7 @@ import os
 import sys
 import struct
 import config
-from urllib import unquote
+from urllib.parse import unquote
 import logging
 
 import comtypes

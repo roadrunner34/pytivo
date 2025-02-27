@@ -12,7 +12,7 @@ import urlparse
 import json
 import pytz
 import struct
-from urllib import quote, unquote
+from urllib.parse import quote, unquote
 from xml.dom import minidom
 from datetime import datetime
 
@@ -562,13 +562,13 @@ class ToGo(Plugin):
                         fileName += recordDate.strftime('%Y-%m-%d')
 
                         if len(episodeTitle):
-                            fileName += ' - \'\'' + episodeTitle + '\'\''
+                            fileName += ' - \'' + episodeTitle + '\''
 
                         if len(callSign):
                             fileName += ' (' + callSign + ')'
                     else:
                         if len(episodeTitle):
-                            fileName += ' - \'\'' + episodeTitle + '\'\''
+                            fileName += ' - \'' + episodeTitle + '\''
 
                         fileName += ' (Recorded '
                         fileName += recordDate.strftime('%b %d, %Y')
@@ -606,7 +606,7 @@ class ToGo(Plugin):
             # If we get here then use old style naming
             parse_url = urlparse.urlparse(url)
 
-            name = unicode(unquote(parse_url[2]), 'utf-8').split('/')[-1].split('.')
+            name = unquote(parse_url[2]).split('/')[-1].split('.')
             try:
                 id = unquote(parse_url[4]).split('id=')[1]
                 name.insert(-1, ' - ' + id)

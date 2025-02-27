@@ -4,7 +4,7 @@ import json
 import struct
 import threading
 import time
-from urllib import quote, unquote
+from urllib.parse import quote, unquote
 
 import config
 from plugin import EncodeUnicode, Plugin

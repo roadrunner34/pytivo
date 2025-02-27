@@ -118,9 +118,9 @@ class LRUCache(object):
     def __init__(self, size=DEFAULT_SIZE):
         # Check arguments
         if size <= 0:
-            raise ValueError, size
+            raise ValueError(size)
         elif type(size) is not type(0):
-            raise TypeError, size
+            raise TypeError(size)
         object.__init__(self)
         self.__heap = []
         self.__dict = {}
@@ -183,7 +183,7 @@ class LRUCache(object):
         # automagically shrink heap on resize
         if name == 'size':
             overage = len(self.__heap) - value
-            for i in xrange(overage):
+            for i in range(overage):
                 lru = heappop(self.__heap)
                 del self.__dict[lru.key]
 

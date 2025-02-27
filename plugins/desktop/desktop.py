@@ -1,7 +1,7 @@
 import os
 import sys
 import logging
-from urllib import unquote_plus
+from urllib.parse import unquote_plus
 from asar import AsarArchive
 
 from plugin import Plugin

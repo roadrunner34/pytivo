@@ -1,5 +1,5 @@
-import BaseHTTPServer
-import SocketServer
+import http.server as BaseHTTPServer
+import socketserver as SocketServer
 import cgi
 import gzip
 import logging
@@ -9,9 +9,9 @@ import sys
 import shutil
 import socket
 import time
-from cStringIO import StringIO
+from io import StringIO
 from email.utils import formatdate
-from urllib import unquote_plus, quote
+from urllib.parse import unquote_plus, quote
 from xml.sax.saxutils import escape
 
 from Cheetah.Template import Template
