@@ -1,0 +1,34 @@
+[project]
+name = "pytivo"
+version = "1.6.26"
+description = "Stream and transfer video, music and photos between a PC and TiVo DVRs using the HMO protocol."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "LGPL-2.1-or-later" }
+dependencies = [
+    "Cheetah3>=3.2.6",
+    "legacy-cgi>=2.6; python_version >= '3.13'",
+    "mutagen>=1.45",
+    "zeroconf>=0.131",
+]
+
+[project.optional-dependencies]
+photo = ["Pillow>=9.1"]
+settings = ["psutil>=5.9"]
+windows = [
+    "pywin32>=306; sys_platform == 'win32'",
+    "comtypes>=1.2; sys_platform == 'win32'",
+]
+tray = ["wxPython>=4.1"]
+test = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+extend-exclude = ["bin"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+ignore = ["F401", "F841"]

@@ -1,15 +1,19 @@
+import json
 import logging
 import os
-import sys
-import json
+import shutil
+import stat
 import subprocess
+import sys
 from urllib.parse import quote, unquote
 
 from Cheetah.Template import Template
 
-import buildhelp
 import config
 from plugin import EncodeUnicode, Plugin
+from plugins.settings import buildhelp
+
+logger = logging.getLogger('pyTivo.settings')
 
 # determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(__file__)
@@ -20,20 +24,30 @@ CLASS_NAME = 'Settings'
 
 # Some error/status message templates
 
-RESET_MSG = """<h3>Soft Reset</h3> <p>pyTivo has reloaded the 
+RESET_MSG = """<h3>Soft Reset</h3> <p>pyTivo has reloaded the
 pyTivo.conf file and all changes should now be in effect.</p>"""
 
 RESTART_MSG = """<h3>Restart</h3> <p>pyTivo will now restart.</p>"""
 
 GOODBYE_MSG = 'Goodbye.\n'
 
-SETTINGS_MSG = """<h3>Settings Saved</h3> <p>Your settings have been 
-saved to the pyTivo.conf file. However you may need to do a <b>Soft 
+SETTINGS_MSG = """<h3>Settings Saved</h3> <p>Your settings have been
+saved to the pyTivo.conf file. However you may need to do a <b>Soft
 Reset</b> or <b>Restart</b> before these changes will take effect.</p>"""
 
 # Preload the templates
 tsname = os.path.join(SCRIPTDIR, 'templates', 'settings.tmpl')
-SETTINGS_TEMPLATE = file(tsname, 'rb').read()
+with open(tsname, encoding='utf-8') as f:
+    SETTINGS_TEMPLATE = f.read()
+
+BOOLEAN_SETTINGS = {
+    'Server': {'debug', 'nosettings', 'togo_save_txt', 'togo_decode',
+               'togo_sortable_names', 'tivolibre_upload', 'beta_tester',
+               'vrd_prompt', 'vrd_decrypt_qsf', 'vrd_delete_on_success',
+               'free_space_check', 'togo_slow_on_retry'},
+    'TiVos': {'optres'},
+    'Shares': {'force_alpha', 'force_ffmpeg'},
+}
 
 class Settings(Plugin):
     CONTENT_TYPE = 'text/html'
@@ -65,7 +79,7 @@ class Settings(Plugin):
         config.reset()
         handler.server.reset()
         handler.redir(RESET_MSG, 3)
-        logging.getLogger('pyTivo.settings').info('pyTivo has been soft reset.')
+        logger.info('pyTivo has been soft reset.')
 
     def Settings(self, handler, query):
         # Read config file new each time in case there was any outside edits
@@ -140,15 +154,20 @@ class Settings(Plugin):
                 config.config.add_section(query[ID][0])
             self.each_section(query, ID, query[ID][0])
 
-        if query['new_Section'][0] != ' ':
-            config.config.add_section(query['new_Section'][0])
+        new_section = query.get('new_Section', [' '])[0]
+        if new_section != ' ' and not config.config.has_section(new_section):
+            config.config.add_section(new_section)
         config.write()
 
         if getattr(sys, 'frozen', False):
-            if sys.platform == "win32":
+            if (sys.platform == "win32" and
+                config.config.has_option('Server', 'tivo_mak')):
                 tivomak_path = os.path.join(os.path.dirname(sys.executable), 'dshow', 'tivomak')
                 tmakcmd = [tivomak_path, '-set', config.config.get('Server', 'tivo_mak')]
-                subprocess.Popen(tmakcmd, shell=True)
+                try:
+                    subprocess.Popen(tmakcmd)
+                except OSError as msg:
+                    logger.error('Unable to run tivomak: %s', msg)
 
         handler.redir(SETTINGS_MSG, 5)
 
@@ -162,42 +181,30 @@ class Settings(Plugin):
                 if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
                     shares_data.append((section, dict(config.config.items(section, raw=True))))
 
-        json_config = {}
-        json_config['Server'] = {}
-        json_config['TiVos'] = {}
-        json_config['Shares'] = {}
+        def section_dict(section, booleans):
+            result = {}
+            for name, value in config.config.items(section):
+                if name in booleans:
+                    try:
+                        value = config.config.getboolean(section, name)
+                    except ValueError:
+                        pass
+                result[name] = value
+            return result
+
+        json_config = {'Server': {}, 'TiVos': {}, 'Shares': {}}
         for section in config.config.sections():
             if section == 'Server':
-                for name, value in config.config.items(section):
-                    if name in {'debug', 'nosettings', 'togo_save_txt', 'togo_decode', 'togo_sortable_names', 'tivolibre_upload', 'beta_tester', 'vrd_prompt', 'vrd_decrypt_qsf', 'vrd_delete_on_success', 'free_space_check', 'togo_slow_on_retry'}:
-                        try:
-                            json_config['Server'][name] = config.config.getboolean(section, name)
-                        except ValueError:
-                            json_config['Server'][name] = value
-                    else:
-                        json_config['Server'][name] = value
-            else:
-                if section.startswith('_tivo_'):
-                    json_config['TiVos'][section] = {}
-                    for name, value in config.config.items(section):
-                        if name in {'optres'}:
-                            try:
-                                json_config['TiVos'][section][name] = config.config.getboolean(section, name)
-                            except ValueError:
-                                json_config['TiVos'][section][name] = value
-                        else:
-                            json_config['TiVos'][section][name] = value
-                else:
-                    if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
-                        json_config['Shares'][section] = {}
-                        for name, value in config.config.items(section):
-                            if name in {'force_alpha', 'force_ffmpeg'}:
-                                try:
-                                    json_config['Shares'][section][name] = config.config.getboolean(section, name)
-                                except ValueError:
-                                    json_config['Shares'][section][name] = value
-                            else:
-                                json_config['Shares'][section][name] = value
+                json_config['Server'] = section_dict(
+                    section, BOOLEAN_SETTINGS['Server'])
+            elif section.startswith('_tivo_'):
+                json_config['TiVos'][section] = section_dict(
+                    section, BOOLEAN_SETTINGS['TiVos'])
+            elif (not config.config.has_option(section, 'type') or
+                  config.config.get(section, 'type').lower()
+                  not in ['settings', 'togo']):
+                json_config['Shares'][section] = section_dict(
+                    section, BOOLEAN_SETTINGS['Shares'])
 
         handler.send_json(json.dumps(json_config))
 
@@ -207,10 +214,15 @@ class Settings(Plugin):
         handler.send_json(json.dumps(json_config))
 
     def GetDriveList(self, handler, query):
-        import psutil
         json_config = {}
-        if sys.platform == 'win32':
-            import win32api
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+            if sys.platform != 'darwin':
+                logger.error('GetDriveList requires the psutil package')
+
+        if sys.platform == 'win32' and psutil:
             for index, part in enumerate(psutil.disk_partitions(all=True)):
                 if part.fstype == '':
                     continue
@@ -220,19 +232,14 @@ class Settings(Plugin):
 
                 json_config[index] = {}
                 json_config[index]['mountpoint'] = part.mountpoint
-
-                info = win32api.GetVolumeInformation(part.device)
-                if (info[0] == ''):
-                    json_config[index]['name'] = 'Local Disk'
-                else:
-                    json_config[index]['name'] = info[0]
+                json_config[index]['name'] = (volume_label(part.device) or
+                                              'Local Disk')
         elif sys.platform == 'darwin':
             for index, fname in enumerate(os.listdir('/Volumes')):
                 json_config[index] = {}
                 json_config[index]['mountpoint'] = '/Volumes/' + fname
                 json_config[index]['name'] = fname
-        elif sys.platform == 'linux2':
-            print psutil.disk_partitions(all=True)
+        elif sys.platform.startswith('linux') and psutil:
             for index, part in enumerate(psutil.disk_partitions(all=True)):
                 if not part.fstype in ['msdos', 'ntfs', 'ext2', 'ext3', 'ext4']:
                     continue
@@ -251,21 +258,14 @@ class Settings(Plugin):
         json_config['used'] = 0
 
         if 'Path' in query:
-            path = unicode(unquote(query['Path'][0]), 'utf-8')
+            path = unquote(query['Path'][0])
 
             try:
-                if sys.platform == 'win32':
-                    import psutil
-                    stats = psutil.disk_usage(path)
-                    json_config['total'] = stats.total
-                    json_config['free'] = stats.free
-                    json_config['used'] = stats.used
-                else:
-                    stats = os.statvfs(path)
-                    json_config['total'] = stats.f_blocks * stats.f_frsize
-                    json_config['free'] = stats.f_bavail * stats.f_frsize
-                    json_config['used'] = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
-            except:
+                stats = shutil.disk_usage(path)
+                json_config['total'] = stats.total
+                json_config['free'] = stats.free
+                json_config['used'] = stats.used
+            except OSError:
                 pass
 
         handler.send_json(json.dumps(json_config))
@@ -273,12 +273,10 @@ class Settings(Plugin):
     def has_hidden_attribute(self, filepath):
         result = False
         if sys.platform == 'win32':
-            import ctypes
             try:
-                attrs = ctypes.windll.kernel32.GetFileAttributesW(unicode(filepath))
-                if attrs != -1:
-                    result = bool(attrs & 2)
-            except (AttributeError, AssertionError):
+                attrs = os.stat(filepath).st_file_attributes
+                result = bool(attrs & stat.FILE_ATTRIBUTE_HIDDEN)
+            except (OSError, AttributeError):
                 result = False
         else:
             if '/.' in filepath:
@@ -291,7 +289,7 @@ class Settings(Plugin):
 
         basepath = '/'
         if 'BasePath' in query:
-            basepath = unicode(unquote(query['BasePath'][0]), 'utf-8')
+            basepath = unquote(query['BasePath'][0])
 
         try:
             for index, fname in enumerate(os.listdir(basepath)):
@@ -311,8 +309,8 @@ class Settings(Plugin):
                         json_config[index]['isFolder'] = True
                 else:
                     json_config[index]['isFolder'] = False
-        except:
-            print "Error"
+        except OSError as msg:
+            logger.error('Unable to list %s: %s', basepath, msg)
 
         handler.send_json(json.dumps(json_config))
 
@@ -340,6 +338,20 @@ class Settings(Plugin):
 
                 logPath = os.path.join(logDir, 'log.txt')
 
-        with open(logPath, 'r') as logFile:
-            handler.send_html(logFile.read())
+        try:
+            with open(logPath, encoding='utf-8', errors='replace') as logFile:
+                handler.send_html(logFile.read())
+        except OSError:
+            handler.send_error(404)
+
+
+def volume_label(device):
+    """Return the volume label for a Windows drive, or ''."""
+    import ctypes
+    buf = ctypes.create_unicode_buffer(261)
+    if ctypes.windll.kernel32.GetVolumeInformationW(
+            ctypes.c_wchar_p(device), buf, len(buf),
+            None, None, None, None, 0):
+        return buf.value
+    return ''
 

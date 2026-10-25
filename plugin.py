@@ -1,56 +1,153 @@
+import importlib
+import logging
 import os
 import random
-import shutil
 import sys
 import threading
 import time
 import unicodedata
-import urllib
+from urllib.parse import quote as _quote, unquote_plus
 
 from Cheetah.Filters import Filter
 from lrucache import LRUCache
 
 if os.path.sep == '/':
-    quote = urllib.quote
-    unquote = urllib.unquote_plus
+    quote = _quote
+    unquote = unquote_plus
 else:
-    quote = lambda x: urllib.quote(x.replace(os.path.sep, '/'))
-    unquote = lambda x: os.path.normpath(urllib.unquote_plus(x))
+    quote = lambda x: _quote(x.replace(os.path.sep, '/'))
+    unquote = lambda x: os.path.normpath(unquote_plus(x))
+
+logger = logging.getLogger('pyTivo.plugin')
+
+
+def _quiet_namemapper_hook(unraisable, _default=sys.unraisablehook):
+    # Cheetah3's C NameMapper probes str placeholders such as $value.lower()
+    # with PyMapping_HasKeyString(), which Python 3.13+ reports as an
+    # "Exception ignored" message on stderr even though Cheetah then falls
+    # back to attribute lookup correctly. Drop only that benign case.
+    if (isinstance(unraisable.exc_value, TypeError) and
+            'PyMapping_HasKeyString' in str(unraisable.err_msg or '')):
+        return
+    _default(unraisable)
+
+
+if sys.version_info >= (3, 13):
+    sys.unraisablehook = _quiet_namemapper_hook
+
+
+def to_text(value):
+    """Return value as str, decoding bytes the way pyTivo always has:
+    UTF-8 first, then the platform's legacy 8-bit code page."""
+    if isinstance(value, bytes):
+        try:
+            return value.decode('utf-8')
+        except UnicodeDecodeError:
+            if sys.platform == 'darwin':
+                return value.decode('mac_roman')
+            return value.decode('cp1252', 'replace')
+    return value
+
 
 class Error:
     CONTENT_TYPE = 'text/html'
 
+
 def GetPlugin(name):
     try:
-        module_name = '.'.join(['plugins', name, name])
-        module = __import__(module_name, globals(), locals(), name)
-        plugin = getattr(module, module.CLASS_NAME)()
-        return plugin
+        module = importlib.import_module('plugins.%s.%s' % (name, name))
+        return getattr(module, module.CLASS_NAME)()
     except ImportError:
-        print('Error no {} plugin exists. Check the type setting for your share.'.format(name))
+        logger.exception('Error loading the %s plugin. Check the type '
+                         'setting for your share.', name)
         return Error
 
+
 class EncodeUnicode(Filter):
+    """Cheetah output filter: render every placeholder as text."""
+
     def filter(self, val, **kw):
-        """Encode Unicode strings, by default in UTF-8"""
+        if val is None:
+            return ''
+        if isinstance(val, bytes):
+            return to_text(val)
+        if not isinstance(val, str):
+            return str(val)
+        return val
 
-        encoding = kw.get('encoding', 'utf8')
 
-        if type(val) == str:
+class FileData:
+    def __init__(self, name, isdir):
+        self.name = name
+        self.isdir = isdir
+        st = os.stat(name)
+        self.mdate = st.st_mtime
+        self.size = st.st_size
+
+
+class SortList:
+    def __init__(self, files):
+        self.files = files
+        self.unsorted = True
+        self.sortby = None
+        self.last_start = 0
+        self.lock = threading.RLock()
+
+
+def list_files(path, filter_function=None, recurse=False, file_class=FileData,
+               keep_dirs=False):
+    """List the visible entries in path (recursively, if asked).
+
+    Directories are included only when not recursing; when recursing, their
+    contents are listed instead. filter_function(path) decides which
+    entries are kept; keep_dirs=True keeps directories regardless of it.
+    """
+    files = []
+    try:
+        names = os.listdir(path)
+    except OSError as msg:
+        logger.debug('Unable to list %s: %s', path, msg)
+        return files
+
+    for name in names:
+        if name.startswith('.'):
+            continue
+        f = os.path.join(path, name)
+        isdir = os.path.isdir(f)
+        if sys.platform == 'darwin':
+            f = unicodedata.normalize('NFC', f)
+        if recurse and isdir:
+            files.extend(list_files(f, filter_function, recurse, file_class,
+                                    keep_dirs))
+        elif ((keep_dirs and isdir) or not filter_function or
+              filter_function(f)):
             try:
-                val = val.decode('utf8')
-            except:
-                if sys.platform == 'darwin':
-                    val = val.decode('macroman')
-                else:
-                    val = val.decode('cp1252')
-        elif type(val) != unicode:
-            val = str(val)
-        return val.encode(encoding)
+                files.append(file_class(f, isdir))
+            except OSError as msg:
+                logger.debug('Skipping %s: %s', f, msg)
+    return files
 
-class Plugin(object):
 
-    random_lock = threading.Lock()
+def shuffle(items, seed=''):
+    """Shuffle in place; a given seed always produces the same order, so
+    the TiVo can page through a shuffled list consistently."""
+    if seed:
+        random.Random(seed).shuffle(items)
+    else:
+        random.shuffle(items)
+
+
+def move_to_front(items, name, logger):
+    """Move the item with the given name to the start of the list."""
+    filenames = [x.name for x in items]
+    try:
+        index = filenames.index(name)
+        items.insert(0, items.pop(index))
+    except ValueError:
+        logger.warning('Start not found: ' + name)
+
+
+class Plugin:
 
     CONTENT_TYPE = ''
 
@@ -69,7 +166,7 @@ class Plugin(object):
         pass
 
     def send_file(self, handler, path, query):
-        handler.send_content_file(unicode(path, 'utf-8'))
+        handler.send_content_file(path)
 
     def get_local_base_path(self, handler, query):
         return os.path.normpath(handler.container['path'])
@@ -86,8 +183,8 @@ class Plugin(object):
         return path
 
     def item_count(self, handler, query, cname, files, last_start=0):
-        """Return only the desired portion of the list, as specified by 
-           ItemCount, AnchorItem and AnchorOffset. 'files' is either a 
+        """Return only the desired portion of the list, as specified by
+           ItemCount, AnchorItem and AnchorOffset. 'files' is either a
            list of strings, OR a list of objects with a 'name' attribute.
         """
         def no_anchor(handler, anchor):
@@ -108,10 +205,10 @@ class Plugin(object):
                     anchor = anchor.replace(bs, '/', 1)
                 anchor = unquote(anchor)
                 anchor = anchor.replace(os.path.sep + cname, local_base_path, 1)
-                if not '://' in anchor:
+                if '://' not in anchor:
                     anchor = os.path.normpath(anchor)
 
-                if type(files[0]) == str:
+                if isinstance(files[0], str):
                     filenames = files
                 else:
                     filenames = [x.name for x in files]
@@ -139,60 +236,18 @@ class Plugin(object):
 
         return files, totalFiles, index
 
-    def get_files(self, handler, query, filterFunction=None,
-                  force_alpha=False, allow_recurse=True):
-
-        class FileData:
-            def __init__(self, name, isdir):
-                self.name = name
-                self.isdir = isdir
-                st = os.stat(unicode(name, 'utf-8'))
-                self.mdate = st.st_mtime
-                self.size = st.st_size
-
-        class SortList:
-            def __init__(self, files):
-                self.files = files
-                self.unsorted = True
-                self.sortby = None
-                self.last_start = 0
-
-        def build_recursive_list(path, recurse=True):
-            files = []
-            path = unicode(path, 'utf-8')
-            try:
-                for f in os.listdir(path):
-                    if f.startswith('.'):
-                        continue
-                    f = os.path.join(path, f)
-                    isdir = os.path.isdir(f)
-                    if sys.platform == 'darwin':
-                        f = unicodedata.normalize('NFC', f)
-                    f = f.encode('utf-8')
-                    if recurse and isdir:
-                        files.extend(build_recursive_list(f))
-                    else:
-                       if not filterFunction or filterFunction(f, file_type):
-                           files.append(FileData(f, isdir))
-            except:
-                pass
-            return files
-
-        subcname = query['Container'][0]
-        path = self.get_local_path(handler, query)
-
-        file_type = query.get('Filter', [''])[0]
-
-        recurse = allow_recurse and query.get('Recurse', ['No'])[0] == 'Yes'
-
-        filelist = []
+    def cached_file_list(self, path, recurse, build, recurse_ttl=None):
+        """Return a SortList for path, reusing a cached listing when it is
+        still fresh. build(path, recurse) creates a new list of files."""
+        filelist = None
         rc = self.recurse_cache
         dc = self.dir_cache
         if recurse:
-            if path in rc and rc.mtime(path) + 300 >= time.time():
+            if path in rc and (recurse_ttl is None or
+                               rc.mtime(path) + recurse_ttl >= time.time()):
                 filelist = rc[path]
         else:
-            updated = os.path.getmtime(unicode(path, 'utf-8'))
+            updated = os.path.getmtime(path)
             if path in dc and dc.mtime(path) >= updated:
                 filelist = dc[path]
             for p in rc:
@@ -200,42 +255,50 @@ class Plugin(object):
                     del rc[p]
 
         if not filelist:
-            filelist = SortList(build_recursive_list(path, recurse))
+            filelist = SortList(build(path, recurse))
 
             if recurse:
                 rc[path] = filelist
             else:
                 dc[path] = filelist
+        return filelist
 
-        def dir_sort(x, y):
-            if x.isdir == y.isdir:
-                return name_sort(x, y)
-            else:
-                return y.isdir - x.isdir
+    def get_files(self, handler, query, filterFunction=None,
+                  force_alpha=False, allow_recurse=True):
 
-        def name_sort(x, y):
-            return cmp(x.name, y.name)
+        path = self.get_local_path(handler, query)
 
-        def date_sort(x, y):
-            return cmp(y.mdate, x.mdate)
+        file_type = query.get('Filter', [''])[0]
+
+        recurse = allow_recurse and query.get('Recurse', ['No'])[0] == 'Yes'
+
+        def build(path, recurse):
+            filt = None
+            if filterFunction:
+                filt = lambda f: filterFunction(f, file_type)
+            return list_files(path, filt, recurse)
+
+        filelist = self.cached_file_list(path, recurse, build, 300)
 
         sortby = query.get('SortOrder', ['Normal'])[0]
-        if filelist.unsorted or filelist.sortby != sortby:
-            if force_alpha:
-                filelist.files.sort(dir_sort)
-            elif sortby == '!CaptureDate':
-                filelist.files.sort(date_sort)
-            else:
-                filelist.files.sort(name_sort)
+        with filelist.lock:
+            if filelist.unsorted or filelist.sortby != sortby:
+                if force_alpha:
+                    filelist.files.sort(key=lambda x: (not x.isdir, x.name))
+                elif sortby == '!CaptureDate':
+                    filelist.files.sort(key=lambda x: x.mdate, reverse=True)
+                else:
+                    filelist.files.sort(key=lambda x: x.name)
 
-            filelist.sortby = sortby
-            filelist.unsorted = False
+                filelist.sortby = sortby
+                filelist.unsorted = False
 
-        files = filelist.files[:]
+            files = filelist.files[:]
 
-        # Trim the list
-        files, total, start = self.item_count(handler, query, handler.cname,
-                                              files, filelist.last_start)
-        if len(files) > 1:
-            filelist.last_start = start
+            # Trim the list
+            files, total, start = self.item_count(handler, query,
+                                                  handler.cname, files,
+                                                  filelist.last_start)
+            if len(files) > 1:
+                filelist.last_start = start
         return files, total, start

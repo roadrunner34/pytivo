@@ -28,32 +28,18 @@ BLOCKSIZE = 512 * 1024
 MAXBLOCKS = 2
 TIMEOUT = 600
 
-# XXX BIG HACK
-# subprocess is broken for me on windows so super hack
-def patchSubprocess():
-    o = subprocess.Popen._make_inheritable
-
-    def _make_inheritable(self, handle):
-        if not handle: return subprocess.GetCurrentProcess()
-        return o(self, handle)
-
-    subprocess.Popen._make_inheritable = _make_inheritable
 mswindows = (sys.platform == "win32")
-if mswindows:
-    patchSubprocess()
 
 def debug(msg):
-    if type(msg) == str:
-        try:
-            msg = msg.decode('utf8')
-        except:
-            if sys.platform == 'darwin':
-                msg = msg.decode('macroman')
-            else:
-                msg = msg.decode('cp1252')
     logger.debug(msg)
 
-def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', mime='', thead=''):
+def write_chunk(outFile, block):
+    """Write one block using HTTP/1.1 chunked transfer encoding."""
+    outFile.write(b'%x\r\n' % len(block))
+    outFile.write(block)
+    outFile.write(b'\r\n')
+
+def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', mime='', thead=b''):
     vcodec = select_videocodec(inFile, tsn, mime)
 
     settings = select_buffsize(tsn) + vcodec
@@ -81,23 +67,19 @@ def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', m
 
     ffmpeg_path = config.get_bin('ffmpeg')
 
-    fname = unicode(inFile, 'utf-8')
-    if mswindows:
-        fname = fname.encode('cp1252')
-
     if isTivoFile:
         if status:
             status['decrypting'] = True
 
-        tivo_mak = config.get_server('tivo_mak')
-        tivodecode_path = config.get_bin('tivodecode')
-        tcmd = [tivodecode_path, '-m', tivo_mak, fname]
-
-        if bool(config.get_bin('tivolibre')):
-            decoder_path = config.get_bin('tivolibre')
-            tcmd = [tivodecode_path, '-m', tivo_mak, '-i', fname]
+        tivo_mak = config.get_tsn('tivo_mak', tsn)
+        tivolibre_path = config.get_bin('tivolibre')
+        if tivolibre_path:
+            tcmd = [tivolibre_path, '-m', tivo_mak, '-i', inFile]
+        else:
+            tcmd = [config.get_bin('tivodecode'), '-m', tivo_mak, inFile]
 
         tivodecode = subprocess.Popen(tcmd, stdout=subprocess.PIPE,
+                                      stdin=subprocess.DEVNULL,
                                       bufsize=(512 * 1024))
         if tivo_compatible(inFile, tsn)[0]:
             cmd = ''
@@ -107,9 +89,12 @@ def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', m
             ffmpeg = subprocess.Popen(cmd, stdin=tivodecode.stdout,
                                       stdout=subprocess.PIPE,
                                       bufsize=(512 * 1024))
+            # Let tivodecode see a broken pipe if ffmpeg exits early
+            tivodecode.stdout.close()
     else:
-        cmd = [ffmpeg_path, '-i', fname] + settings
+        cmd = [ffmpeg_path, '-i', inFile] + settings
         ffmpeg = subprocess.Popen(cmd, bufsize=(512 * 1024),
+                                  stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE)
 
     if cmd:
@@ -121,7 +106,7 @@ def transcode(isQuery, inFile, outFile, status=None, isTivoFile=False, tsn='', m
     if thead:
         ffmpeg_procs[inFile]['blocks'].append(thead)
     reap_process(inFile)
-    return resume_transfer(inFile, outFile, 0)
+    return resume_transfer(inFile, outFile, 0, status)
 
 def is_resumable(inFile, offset):
     if inFile in ffmpeg_procs:
@@ -138,6 +123,8 @@ def resume_transfer(inFile, outFile, offset, status=None):
     offset -= proc['start']
     count = 0
     output = 0
+    if status is None:
+        status = {'rate': 0, 'output': 0, 'error': ''}
 
     try:
         start_time = time.time()
@@ -148,9 +135,7 @@ def resume_transfer(inFile, outFile, offset, status=None):
             if offset < length:
                 if offset > 0:
                     block = block[offset:]
-                outFile.write('%x\r\n' % len(block))
-                outFile.write(block)
-                outFile.write('\r\n')
+                write_chunk(outFile, block)
                 count += len(block)
                 output += len(block)
 
@@ -164,7 +149,7 @@ def resume_transfer(inFile, outFile, offset, status=None):
 
             offset -= length
         outFile.flush()
-    except Exception, msg:
+    except OSError as msg:
         status['error'] = str(msg)
         logger.info(msg)
         return output
@@ -183,7 +168,7 @@ def transfer_blocks(inFile, outFile):
         try:
             block = proc['process'].stdout.read(BLOCKSIZE)
             proc['last_read'] = time.time()
-        except Exception, msg:
+        except (OSError, ValueError) as msg:
             logger.info(msg)
             cleanup(inFile)
             kill(proc['process'])
@@ -192,7 +177,7 @@ def transfer_blocks(inFile, outFile):
         if not block:
             try:
                 outFile.flush()
-            except Exception, msg:
+            except OSError as msg:
                 logger.info(msg)
             else:
                 cleanup(inFile)
@@ -205,11 +190,9 @@ def transfer_blocks(inFile, outFile):
             blocks.pop(0)
 
         try:
-            outFile.write('%x\r\n' % len(block))
-            outFile.write(block)
-            outFile.write('\r\n')
+            write_chunk(outFile, block)
             count += len(block)
-        except Exception, msg:
+        except OSError as msg:
             logger.info(msg)
             break
 
@@ -220,7 +203,7 @@ def reap_process(inFile):
         proc = ffmpeg_procs[inFile]
         if proc['last_read'] + TIMEOUT < time.time():
             del ffmpeg_procs[inFile]
-            del reapers[inFile]
+            reapers.pop(inFile, None)
             kill(proc['process'])
         else:
             reaper = threading.Timer(TIMEOUT, reap_process, (inFile,))
@@ -228,9 +211,10 @@ def reap_process(inFile):
             reaper.start()
 
 def cleanup(inFile):
-    del ffmpeg_procs[inFile]
-    reapers[inFile].cancel()
-    del reapers[inFile]
+    ffmpeg_procs.pop(inFile, None)
+    reaper = reapers.pop(inFile, None)
+    if reaper:
+        reaper.cancel()
 
 def select_audiocodec(isQuery, inFile, tsn='', mime=''):
     if inFile[-5:].lower() == '.tivo':
@@ -244,10 +228,10 @@ def select_audiocodec(isQuery, inFile, tsn='', mime=''):
     if vInfo['aCodec'] in compatiblecodecs:
         aKbps = vInfo['aKbps']
         aCh = vInfo['aCh']
-        if aKbps == None:
+        if aKbps is None:
             if not isQuery:
                 vInfoQuery = audio_check(inFile, tsn)
-                if vInfoQuery == None:
+                if vInfoQuery is None:
                     aKbps = None
                     aCh = None
                 else:
@@ -258,7 +242,7 @@ def select_audiocodec(isQuery, inFile, tsn='', mime=''):
         if aKbps and int(aKbps) <= config.getMaxAudioBR(tsn):
             # compatible codec and bitrate, do not reencode audio
             codec = 'copy'
-        if vInfo['aCodec'] != 'ac3' and (aCh == None or aCh > 2):
+        if vInfo['aCodec'] != 'ac3' and (aCh is None or aCh > 2):
             codec = 'ac3'
     val = ['-c:a', codec]
     if not (codec == 'copy' and codectype == 'mpeg2video'):
@@ -275,7 +259,7 @@ def select_audiofr(inFile, tsn):
 
 def select_audioch(inFile, tsn):
     # AC-3 max channels is 5.1
-    if video_info(inFile)['aCh'] > 6:
+    if (video_info(inFile)['aCh'] or 0) > 6:
         debug('Too many audio channels for AC-3, using 5.1 instead')
         return ['-ac', '6']
     return []
@@ -284,11 +268,12 @@ def select_audiolang(inFile, tsn):
     vInfo = video_info(inFile)
     audio_lang = config.get_tsn('audio_lang', tsn)
     debug('audio_lang: %s' % audio_lang)
+    stream = ''
     if vInfo['mapAudio']:
         # default to first detected audio stream to begin with
         stream = vInfo['mapAudio'][0][0]
         debug('set first detected audio stream by default: %s' % stream)
-    if audio_lang != None and vInfo['mapVideo'] != None:
+    if audio_lang is not None and vInfo['mapVideo'] is not None:
         langmatch_curr = []
         langmatch_prev = vInfo['mapAudio'][:]
         for lang in audio_lang.replace(' ', '').lower().split(','):
@@ -313,7 +298,7 @@ def select_audiolang(inFile, tsn):
                 langmatch_curr = []
     # don't let FFmpeg auto select audio stream, pyTivo defaults to
     # first detected
-    if stream:
+    if stream and vInfo['mapVideo']:
         debug('selected audio stream: %s' % stream)
         return '-map ' + vInfo['mapVideo'] + ' -map ' + stream
     # if no audio is found
@@ -343,7 +328,7 @@ def select_videocodec(inFile, tsn, mime=''):
     return codec
 
 def select_videobr(inFile, tsn, mime=''):
-    return ['-b:v', str(select_videostr(inFile, tsn, mime) / 1000) + 'k']
+    return ['-b:v', str(select_videostr(inFile, tsn, mime) // 1000) + 'k']
 
 def select_videostr(inFile, tsn, mime=''):
     vInfo = video_info(inFile)
@@ -387,7 +372,7 @@ def pad_TB(TIVO_WIDTH, TIVO_HEIGHT, multiplier, vInfo):
                       vInfo['vWidth']) * multiplier)
     if endHeight % 2:
         endHeight -= 1
-    topPadding = (TIVO_HEIGHT - endHeight) / 2
+    topPadding = (TIVO_HEIGHT - endHeight) // 2
     if topPadding % 2:
         topPadding -= 1
     return ['-vf', 'scale=%d:%d,pad=%d:%d:0:%d' % (TIVO_WIDTH,
@@ -398,7 +383,7 @@ def pad_LR(TIVO_WIDTH, TIVO_HEIGHT, multiplier, vInfo):
                    (vInfo['vHeight'] * multiplier))
     if endWidth % 2:
         endWidth -= 1
-    leftPadding = (TIVO_WIDTH - endWidth) / 2
+    leftPadding = (TIVO_WIDTH - endWidth) // 2
     if leftPadding % 2:
         leftPadding -= 1
     return ['-vf', 'scale=%d:%d,pad=%d:%d:%d:0' % (endWidth,
@@ -461,8 +446,8 @@ def select_aspect(inFile, tsn = ''):
             return []
         # else, resize video.
 
-    d = gcd(vInfo['vHeight'], vInfo['vWidth'])
-    rheight, rwidth = vInfo['vHeight'] / d, vInfo['vWidth'] / d
+    d = math.gcd(vInfo['vHeight'], vInfo['vWidth'])
+    rheight, rwidth = vInfo['vHeight'] // d, vInfo['vWidth'] // d
     debug('rheight=%s rwidth=%s' % (rheight, rwidth))
 
     if (rwidth, rheight) in [(1, 1)] and vInfo['par1'] == '8:9':
@@ -563,8 +548,8 @@ def tivo_compatible_video(vInfo, tsn, mime=''):
             message = (False, 'vCodec %s not compatible' % codec)
             break
 
-        if vInfo['kbps'] != None:
-            abit = max('0', vInfo['aKbps'])
+        if vInfo['kbps'] is not None:
+            abit = vInfo['aKbps'] or '0'
             if (int(vInfo['kbps']) - int(abit) >
                 config.strtod(config.getMaxVideoBR(tsn)) / 1000):
                 message = (False, '%s kbps exceeds max video bitrate' %
@@ -602,7 +587,7 @@ def tivo_compatible_audio(vInfo, inFile, tsn, mime=''):
     while True:
         codec = vInfo.get('aCodec', '')
 
-        if codec == None:
+        if codec is None:
             debug('No audio stream detected')
             break
 
@@ -676,8 +661,7 @@ def tivo_compatible(inFile, tsn='', mime=''):
 
 def video_info(inFile, cache=True):
     vInfo = dict()
-    fname = unicode(inFile, 'utf-8')
-    mtime = os.path.getmtime(fname)
+    mtime = os.path.getmtime(inFile)
     if cache:
         if inFile in info_cache and info_cache[inFile][0] == mtime:
             debug('CACHE HIT! %s' % inFile)
@@ -696,34 +680,26 @@ def video_info(inFile, cache=True):
             info_cache[inFile] = (mtime, vInfo)
         return vInfo
 
-    if mswindows:
-        fname = fname.encode('cp1252')
-    cmd = [ffmpeg_path, '-i', fname]
-    # Windows and other OS buffer 4096 and ffmpeg can output more than that.
-    err_tmp = tempfile.TemporaryFile()
-    ffmpeg = subprocess.Popen(cmd, stderr=err_tmp, stdout=subprocess.PIPE,
-                              stdin=subprocess.PIPE)
+    cmd = [ffmpeg_path, '-i', inFile]
+    # ffmpeg can write more to stderr than a pipe buffers, so use a file.
+    with tempfile.TemporaryFile() as err_tmp:
+        ffmpeg = subprocess.Popen(cmd, stderr=err_tmp,
+                                  stdout=subprocess.DEVNULL,
+                                  stdin=subprocess.DEVNULL)
 
-    # wait configured # of seconds: if ffmpeg is not back give up
-    limit = config.getFFmpegWait()
-    if limit:
-        for i in xrange(limit * 20):
-            time.sleep(.05)
-            if not ffmpeg.poll() == None:
-                break
-
-        if ffmpeg.poll() == None:
+        # wait configured # of seconds: if ffmpeg is not back give up
+        limit = config.getFFmpegWait()
+        try:
+            ffmpeg.wait(timeout=limit or None)
+        except subprocess.TimeoutExpired:
             kill(ffmpeg)
             vInfo['Supported'] = False
             if cache:
                 info_cache[inFile] = (mtime, vInfo)
             return vInfo
-    else:
-        ffmpeg.wait()
 
-    err_tmp.seek(0)
-    output = err_tmp.read()
-    err_tmp.close()
+        err_tmp.seek(0)
+        output = err_tmp.read().decode('utf-8', 'replace')
     debug('ffmpeg output=%s' % output)
 
     attrs = {'container': r'Input #0, ([^,]+),',
@@ -879,18 +855,9 @@ def video_info(inFile, cache=True):
                 if line.startswith('  Duration:'):
                     flag = False
                 else:
-                    try:
+                    if ':' in line:
                         key, value = [x.strip() for x in line.split(':', 1)]
-                        try:
-                            value = value.decode('utf-8')
-                        except:
-                            if sys.platform == 'darwin':
-                                value = value.decode('macroman')
-                            else:
-                                value = value.decode('cp1252')
                         rawmeta[key] = [value]
-                    except:
-                        pass
 
     vInfo['rawmeta'] = rawmeta
 
@@ -902,8 +869,7 @@ def video_info(inFile, cache=True):
                 audiomap = dict(vInfo['mapAudio'])
                 newmap = shlex.split(data[key])
                 audiomap.update(zip(newmap[::2], newmap[1::2]))
-                vInfo['mapAudio'] = sorted(audiomap.items(),
-                                           key=lambda (k,v): (k,v))
+                vInfo['mapAudio'] = sorted(audiomap.items())
             elif key.startswith('Override_millisecs'):
                 vInfo[key.replace('Override_', '')] = int(data[key])
             else:
@@ -917,21 +883,21 @@ def video_info(inFile, cache=True):
 def audio_check(inFile, tsn):
     cmd_string = ('-y -c:v mpeg2video -r 29.97 -b:v 1000k -c:a copy ' +
                   select_audiolang(inFile, tsn) + ' -t 00:00:01 -f vob -')
-    fname = unicode(inFile, 'utf-8')
-    if mswindows:
-        fname = fname.encode('cp1252')
-    cmd = [config.get_bin('ffmpeg'), '-i', fname] + cmd_string.split()
-    ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    cmd = [config.get_bin('ffmpeg'), '-i', inFile] + cmd_string.split()
+    ffmpeg = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                              stdin=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
     fd, testname = tempfile.mkstemp()
     testfile = os.fdopen(fd, 'wb')
     try:
         shutil.copyfileobj(ffmpeg.stdout, testfile)
-    except:
+    except OSError:
         kill(ffmpeg)
         testfile.close()
         vInfo = None
     else:
         testfile.close()
+        ffmpeg.wait()
         vInfo = video_info(testname, False)
     os.remove(testname)
     return vInfo
@@ -944,31 +910,14 @@ def supported_format(inFile):
         return False
 
 def kill(popen):
+    """Stop a child process: ask politely, then insist."""
     debug('killing pid=%s' % str(popen.pid))
-    if mswindows:
-        win32kill(popen.pid)
-    else:
-        import os, signal
-        for i in xrange(3):
-            debug('sending SIGTERM to pid: %s' % popen.pid)
-            os.kill(popen.pid, signal.SIGTERM)
-            time.sleep(.5)
-            if popen.poll() is not None:
-                debug('process %s has exited' % popen.pid)
-                break
-        else:
-            while popen.poll() is None:
-                debug('sending SIGKILL to pid: %s' % popen.pid)
-                os.kill(popen.pid, signal.SIGKILL)
-                time.sleep(.5)
-
-def win32kill(pid):
-    import ctypes
-    handle = ctypes.windll.kernel32.OpenProcess(1, False, pid)
-    ctypes.windll.kernel32.TerminateProcess(handle, -1)
-    ctypes.windll.kernel32.CloseHandle(handle)
-
-def gcd(a, b):
-    while b:
-        a, b = b, a % b
-    return a
+    if popen.poll() is not None:
+        return
+    popen.terminate()
+    try:
+        popen.wait(timeout=1.5)
+    except subprocess.TimeoutExpired:
+        debug('sending SIGKILL to pid: %s' % popen.pid)
+        popen.kill()
+        popen.wait()

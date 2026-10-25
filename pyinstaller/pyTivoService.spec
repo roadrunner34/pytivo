@@ -1,45 +1,35 @@
 # -*- mode: python -*-
 
-block_cipher = None
-
+from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(['../pyTivoService.py'],
              pathex=['../'],
              binaries=[],
              datas=[('../content/*.*', 'content'),
-				('../templates/*.*', 'templates'), 
-				('../plugins/settings/templates/*.*', 'plugins/settings/templates'), 
-				('../plugins/settings/content/*.*', 'plugins/settings/content'), 
-				('../plugins/settings/help.txt', 'plugins/settings/'),
-				('../plugins/music/templates/*.*', 'plugins/music/templates'), 
-				('../plugins/photo/templates/*.*', 'plugins/photo/templates'), 
-				('../plugins/togo/templates/*.*', 'plugins/togo/templates'), 
+                ('../templates/*.*', 'templates'),
+                ('../plugins/settings/templates/*.*', 'plugins/settings/templates'),
+                ('../plugins/settings/content/*.*', 'plugins/settings/content'),
+                ('../plugins/settings/help.txt', 'plugins/settings/'),
+                ('../plugins/music/templates/*.*', 'plugins/music/templates'),
+                ('../plugins/photo/templates/*.*', 'plugins/photo/templates'),
+                ('../plugins/togo/templates/*.*', 'plugins/togo/templates'),
                 ('../plugins/video/templates/*.*', 'plugins/video/templates'),
-				('../UserInterface/res/*.png', 'UserInterface/res/'),
+                ('../UserInterface/res/*.png', 'UserInterface/res/'),
                 ('../videoredo/profiles/*.xml', 'videoredo/profiles/'),],
-             hiddenimports=[
-				'Cheetah.DummyTransaction', 
-				'Cheetah.Version',
-				'Cheetah.Template',
-				'Cheetah.NameMapper',
-				'Cheetah.CacheRegion',
-				'Cheetah.Filters',
-				'Cheetah.ErrorCatchers',
-				'plugins.desktop.desktop', 
-				'plugins.settings.settings', 
-				'plugins.music.music', 
-				'plugins.photo.photo', 
-				'plugins.togo.togo', 
-				'plugins.video.video',
-                'plugins.vrd.vrd'],
+             hiddenimports=(collect_submodules('Cheetah') +
+                            collect_submodules('zeroconf') + [
+                 'plugins.desktop.desktop',
+                 'plugins.desktop.asar',
+                 'plugins.settings.settings',
+                 'plugins.music.music',
+                 'plugins.photo.photo',
+                 'plugins.togo.togo',
+                 'plugins.video.video',
+                 'plugins.vrd.vrd']),
              hookspath=[],
              runtime_hooks=[],
-             excludes=[],
-             win_no_prefer_redirects=False,
-             win_private_assemblies=False,
-             cipher=block_cipher)
-pyz = PYZ(a.pure, a.zipped_data,
-             cipher=block_cipher)
+             excludes=[],)
+pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
           a.binaries,
@@ -50,4 +40,4 @@ exe = EXE(pyz,
           strip=False,
           upx=True,
           console=True,
-		  icon='../UserInterface/res/icon.ico' )
+          icon='../UserInterface/res/icon.ico' )

@@ -136,7 +136,7 @@ class AsarArchive:
 
         unpacked_dir = self.filename + '.unpacked'
         if not os.path.isdir(unpacked_dir):
-            LOGGER.warn(
+            LOGGER.warning(
                 'Failed to copy extracted file %s, no extracted dir',
                 path
             )
@@ -146,7 +146,7 @@ class AsarArchive:
         source_path = os.path.join(unpacked_dir, path)
 
         if not os.path.exists(source_path):
-            LOGGER.warn(
+            LOGGER.warning(
                 'Failed to copy extracted file %s, does not exist',
                 path
             )

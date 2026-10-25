@@ -1,17 +1,23 @@
+import configparser
+import json
 import os
+import platform
+import subprocess
 import sys
-import wx
 import threading
 import time
-import platform
+import urllib.error
+import urllib.request
 import webbrowser
-import configparser as ConfigParser
-from urllib import request as urllib2
-from urllib.parse import quote, unquote_plus
-import socket
-import json
 from threading import Timer
-from Icons import TrayIcon
+
+import wx
+import wx.adv
+
+try:
+    from UserInterface.Icons import TrayIcon
+except ImportError:
+    from Icons import TrayIcon
 
 versionString = '1.6.26'
 version = versionString.split('.')
@@ -27,15 +33,37 @@ if isWindows:
     import win32serviceutil
 
 
+URL_TIMEOUT = 10  # seconds
+
+
+def UrlRead(url):
+    with urllib.request.urlopen(url, timeout=URL_TIMEOUT) as response:
+        return response.read().decode('utf-8', 'replace').strip()
+
+
+def LocalCommand(command, container):
+    return UrlRead('http://localhost:%s/TiVoConnect?Command=%s&Container=%s'
+                   % (GetPort(), command, container))
+
+
+def AppDir():
+    """Directory holding the frozen app (outside the .app bundle on Mac)."""
+    if isMacOSX:
+        # pyTivo tray is inside a .app bundle
+        return os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(sys.executable))))
+    return os.path.dirname(sys.executable)
+
+
 def CreateMenuItem(menu, label, func):
     item = wx.MenuItem(menu, -1, label)
     menu.Bind(wx.EVT_MENU, func, id=item.GetId())
-    menu.AppendItem(item)
+    menu.Append(item)
     return item
 
 
 def LoadConfigFile():
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
 
     # load config file
     configFile = ''
@@ -43,7 +71,7 @@ def LoadConfigFile():
         status = None
         try:
             status = win32serviceutil.QueryServiceStatus('pyTivo')
-        except:
+        except Exception:
             if 'APPDATA' in os.environ:
                 configFile = os.path.join(os.environ['APPDATA'], 'pyTivo', 'pyTivo.conf')
         else:
@@ -52,18 +80,16 @@ def LoadConfigFile():
 
     if not os.path.isfile(configFile):
         if getattr(sys, 'frozen', False):
-            if isMacOSX:
-                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivo.app')
-            else:
-                configDir = os.path.dirname(sys.executable)
+            configDir = AppDir()
         else:
-            configDir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+            # pyTivo.conf lives next to pyTivo.py
+            configDir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         configFile = os.path.join(configDir, 'pyTivo.conf')
 
     try:
-        config.read(configFile)
-    except:
-        print('No config file')
+        config.read(configFile, encoding='utf-8')
+    except (configparser.Error, UnicodeDecodeError):
+        print('Unable to read config file ' + configFile)
 
     return config
 
@@ -74,7 +100,7 @@ def SaveConfigFile(config):
         status = None
         try:
             status = win32serviceutil.QueryServiceStatus('pyTivo')
-        except:
+        except Exception:
             appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
             if not os.path.exists(appdataDir):
                 os.makedirs(appdataDir)
@@ -90,18 +116,14 @@ def SaveConfigFile(config):
 
     if not configFile:
         if getattr(sys, 'frozen', False):
-            if isMacOSX:
-                configDir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))), 'pyTivo.app')
-            else:
-                configDir = os.path.dirname(sys.executable)
+            configDir = AppDir()
         else:
-            configDir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+            configDir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         configFile = os.path.join(configDir, 'pyTivo.conf')
 
-    file = open(configFile, 'w')
-    config.write(file)
-    file.close()
+    with open(configFile, 'w', encoding='utf-8') as file:
+        config.write(file)
 
 
 def GetPort():
@@ -149,7 +171,7 @@ def SetUpdateCheckInterval(days):
     if not config.has_section('Server'):
         config.add_section('Server')
 
-    config.set('Server', 'update_check_interval', days)
+    config.set('Server', 'update_check_interval', str(days))
     SaveConfigFile(config)
 
 
@@ -160,45 +182,30 @@ def IsBetaTester():
     config = LoadConfigFile()
     try:
         beta_tester = config.getboolean('Server', 'beta_tester')
-    except:
+    except (configparser.Error, ValueError):
         beta_tester = False
     return beta_tester
 
 def GetDownloadQueueCount():
     try:
-        response = json.load(urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=GetTotalQueueCount&Container=ToGo'))
-
-        if 'count' in response:
-            return int(response['count'])
-        else:
-            return 0
-    except urllib2.URLError as e:
-        isError = True
-    except socket.timeout as e:
-        isError = True
-
-    return 0
+        response = json.loads(LocalCommand('GetTotalQueueCount', 'ToGo'))
+        return int(response.get('count', 0))
+    except (OSError, ValueError):
+        return 0
 
 def GetUploadQueueCount():
     try:
-        response = json.load(urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=GetActiveTransferCount'))
-
-        if 'count' in response:
-            return int(response['count'])
-        else:
-            return 0
-    except urllib2.URLError as e:
-        isError = True
-    except socket.timeout as e:
-        isError = True
-
-    return 0
+        response = json.loads(UrlRead('http://localhost:' + GetPort() +
+                              '/TiVoConnect?Command=GetActiveTransferCount'))
+        return int(response.get('count', 0))
+    except (OSError, ValueError):
+        return 0
 
 
 def CancelAllTransfers():
     try:
-        urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=UnqueueAll&Container=ToGo')
-    except urllib2.URLError as e:
+        LocalCommand('UnqueueAll', 'ToGo')
+    except OSError:
         pass
 
 
@@ -207,7 +214,7 @@ def CheckUserIsAdmin():
         import ctypes
         try:
             return ctypes.windll.shell32.IsUserAnAdmin()
-        except:
+        except (AttributeError, OSError):
             print('Admin check failed, assuming not an admin.')
             return False
 
@@ -227,8 +234,9 @@ def RestartAsAdmin():
             ctypes.windll.shell32.ShellExecuteW(None, 'runas', sys.executable, '\"'+ __file__+'\" ' + params, None, 1)
 
 
-class pyTivoTray(wx.TaskBarIcon):
+class pyTivoTray(wx.adv.TaskBarIcon):
     def __init__(self, frame):
+        self.mutex = None
         if isWindows:
             self.mutexName = 'pyTivoTray_{BF213038-4019-49C0-A0AD-9D4419852647}'
             self.mutex = CreateMutex(None, False, self.mutexName)
@@ -241,7 +249,7 @@ class pyTivoTray(wx.TaskBarIcon):
             status = None
             try:
                 status = win32serviceutil.QueryServiceStatus('pyTivo')
-            except:
+            except Exception:
                 pass # Service not installed
             else:
                 self.isPyTivoService = True
@@ -268,7 +276,7 @@ class pyTivoTray(wx.TaskBarIcon):
             self.pyTivoThread = None
             self.StartPyTivoThread()
 
-        self.Bind(wx.EVT_TASKBAR_LEFT_DCLICK, self.OnOpenDesktop)
+        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, self.OnOpenDesktop)
         self.CheckVersion(True)
 
         if showDesktopOnStart:
@@ -297,6 +305,11 @@ class pyTivoTray(wx.TaskBarIcon):
 
 
     def UpdateIcon(self):
+        # wx may only be touched from the GUI thread
+        if not wx.IsMainThread():
+            wx.CallAfter(self.UpdateIcon)
+            return
+
         icon = TrayIcon()
         if self.isPyTivoRunning:
             self.SetIcon(icon.GetRunning(), 'pyTivo\n(running)')
@@ -308,19 +321,26 @@ class pyTivoTray(wx.TaskBarIcon):
         if not self.isPyTivoRunning:
             self.StartPyTivoThread()
 
-        import subprocess
-        if getattr(sys, 'frozen', False):
-            cliOptions = '/setport/' + GetPort()
-            if isMacOSX:
-                pyTivoDesktopPath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable))))), 'pyTivoDesktop.app')
-                pyTivoDesktopProcess = subprocess.Popen('open -a ' + pyTivoDesktopPath + ' --args ' + cliOptions, shell=True)
-            elif isWindows:
-                pyTivoDesktopPath = os.path.join(os.path.dirname(sys.executable), 'desktop', 'pyTivoDesktop')
-                pyTivoDesktopProcess = subprocess.Popen('\"' + pyTivoDesktopPath + '\" ' + cliOptions, shell=True)
-        else:
-            parentDirectory = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            pyTivoDesktopProcess = subprocess.Popen(
-                os.path.join(parentDirectory, 'build\desktop\pyTivoDesktop  /setport/') + GetPort(), shell=True)
+        cliOptions = '/setport/' + GetPort()
+        try:
+            if getattr(sys, 'frozen', False):
+                if isMacOSX:
+                    pyTivoDesktopPath = os.path.join(AppDir(), 'pyTivoDesktop.app')
+                    subprocess.Popen(['open', '-a', pyTivoDesktopPath, '--args', cliOptions])
+                elif isWindows:
+                    pyTivoDesktopPath = os.path.join(os.path.dirname(sys.executable), 'desktop', 'pyTivoDesktop')
+                    subprocess.Popen([pyTivoDesktopPath, cliOptions])
+            else:
+                parentDirectory = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                pyTivoDesktopPath = os.path.join(parentDirectory, 'build', 'desktop', 'pyTivoDesktop')
+                if os.path.exists(pyTivoDesktopPath) or os.path.exists(pyTivoDesktopPath + '.exe'):
+                    subprocess.Popen([pyTivoDesktopPath, cliOptions])
+                else:
+                    # No desktop app when running from source; use the web UI
+                    ShowWebUI()
+        except OSError as msg:
+            print('Unable to open pyTivo Desktop: %s' % msg)
+            ShowWebUI()
 
 
     def CheckVersion(self, silentCheck):
@@ -408,9 +428,9 @@ class pyTivoTray(wx.TaskBarIcon):
         isError = False
         try:
             if isMacOSX:
-                response = urllib2.urlopen('http://www.pytivodesktop.com/mac/beta.info').read()
+                response = UrlRead('http://www.pytivodesktop.com/mac/beta.info')
             elif isWindows:
-                response = urllib2.urlopen('http://www.pytivodesktop.com/win32/beta.info').read()
+                response = UrlRead('http://www.pytivodesktop.com/win32/beta.info')
             else:
                 return
 
@@ -432,9 +452,7 @@ class pyTivoTray(wx.TaskBarIcon):
             elif not silentCheck:
                 wx.CallAfter(self.PromptBetaUpdate, False, '', False)
 
-        except urllib2.URLError as e:
-            isError = True
-        except socket.timeout as e:
+        except (OSError, ValueError, IndexError):
             isError = True
 
         if isError:
@@ -447,10 +465,10 @@ class pyTivoTray(wx.TaskBarIcon):
         try:
             if isMacOSX:
                 versionUrl = 'http://www.pytivodesktop.com/php/update_check.php?platform=mac&current=' + versionString
-                response = urllib2.urlopen(versionUrl).read()
+                response = UrlRead(versionUrl)
             elif isWindows:
                 versionUrl = 'http://www.pytivodesktop.com/php/update_check.php?platform=win&current=' + versionString
-                response = urllib2.urlopen(versionUrl).read()
+                response = UrlRead(versionUrl)
             else:
                 return
 
@@ -482,9 +500,7 @@ class pyTivoTray(wx.TaskBarIcon):
                     if not silentCheck:
                         wx.CallAfter(self.PromptVersionUpdate, False, '', False)
 
-        except urllib2.URLError as e:
-            isError = True
-        except socket.timeout as e:
+        except (OSError, ValueError, IndexError):
             isError = True
 
         if isError:
@@ -502,6 +518,7 @@ class pyTivoTray(wx.TaskBarIcon):
         if updateInterval > 0:
             seconds = updateInterval * 86400 # 86400 = seconds in a day
             self.versionCheckTimer = Timer(float(seconds), self.CheckVersion, args=[True])
+            self.versionCheckTimer.daemon = True
             self.versionCheckTimer.start()
 
 
@@ -515,7 +532,7 @@ class pyTivoTray(wx.TaskBarIcon):
             return
 
         self.pyTivoStop = threading.Event()
-        self.pyTivoThread = threading.Thread(target=self.pyTivoThreadFunc)
+        self.pyTivoThread = threading.Thread(target=self.pyTivoThreadFunc, daemon=True)
         self.pyTivoThread.start()
 
 
@@ -534,7 +551,7 @@ class pyTivoTray(wx.TaskBarIcon):
 
     def StartPyTivoServiceMonitorThread(self):
         self.pyTivoServiceMonitorStop = threading.Event()
-        self.pyTivoServiceMonitorThread = threading.Thread(target=self.pyTivoServiceMonitorThreadFunc)
+        self.pyTivoServiceMonitorThread = threading.Thread(target=self.pyTivoServiceMonitorThreadFunc, daemon=True)
         self.pyTivoServiceMonitorThread.start()
 
 
@@ -583,7 +600,7 @@ class pyTivoTray(wx.TaskBarIcon):
             status = win32serviceutil.QueryServiceStatus('pyTivo')
             if status[1] != win32service.SERVICE_RUNNING:
                 return True
-        except:
+        except Exception:
             return False
 
         if not self.ConfirmPyTivoStop():
@@ -593,27 +610,28 @@ class pyTivoTray(wx.TaskBarIcon):
 
         try:
             win32serviceutil.StopService('pyTivo')
-        except:
+        except Exception:
             return False
 
         return True
 
 
     def RestartPyTivo(self):
-        if isWindows:
+        if isWindows and self.isPyTivoService:
             try:
                 win32serviceutil.RestartService('pyTivo')
-            except:
+            except Exception:
                 pass
             else:
                 return
 
-        urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=Restart&Container=Settings').read()
+        try:
+            LocalCommand('Restart', 'Settings')
+        except OSError:
+            pass
 
 
     def pyTivoThreadFunc(self):
-        import subprocess
-
         if 'APPDATA' in os.environ:
             appdataDir = os.path.join(os.environ['APPDATA'], 'pyTivo')
             if not os.path.exists(appdataDir):
@@ -621,20 +639,16 @@ class pyTivoTray(wx.TaskBarIcon):
 
             logPath = os.path.join(appdataDir, 'log.txt')
         else:
-            if isMacOSX:
-                logDir = os.path.dirname(os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))))  # pyTivo tray is inside a .app bundle
-            else:
-                logDir = os.path.dirname(sys.executable)
-
-            logPath = os.path.join(logDir, 'log.txt')
+            logPath = os.path.join(AppDir(), 'log.txt')
 
         logFile = None
         if getattr(sys, 'frozen', False):
-            logFile = open(logPath, 'w')
-            pyTivoProcess = subprocess.Popen(os.path.join(os.path.dirname(sys.executable), 'pyTivo'), stdout=logFile, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, shell=True)
+            logFile = open(logPath, 'w', encoding='utf-8')
+            pyTivoProcess = subprocess.Popen([os.path.join(os.path.dirname(sys.executable), 'pyTivo')],
+                                             stdout=logFile, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         else:
-            pyTivoProcess = subprocess.Popen('python \"' + os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pyTivo.py') + '\"', shell=True)
+            pyTivoScript = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pyTivo.py')
+            pyTivoProcess = subprocess.Popen([sys.executable, pyTivoScript])
 
         self.isPyTivoRunning = True
         self.UpdateIcon()
@@ -642,11 +656,15 @@ class pyTivoTray(wx.TaskBarIcon):
         while pyTivoProcess.poll() is None:
             time.sleep(1.0)
 
-            if (self.pyTivoStop.isSet()):
-                urllib2.urlopen('http://localhost:' + GetPort() + '/TiVoConnect?Command=Quit&Container=Settings').read()
+            if self.pyTivoStop.is_set():
+                try:
+                    LocalCommand('Quit', 'Settings')
+                    pyTivoProcess.wait(timeout=30)
+                except (OSError, subprocess.TimeoutExpired):
+                    pyTivoProcess.terminate()
                 break
 
-        if logFile != None:
+        if logFile is not None:
             logFile.close()
 
         self.isPyTivoRunning = False
@@ -657,14 +675,14 @@ class pyTivoTray(wx.TaskBarIcon):
     def pyTivoServiceMonitorThreadFunc(self):
         if isWindows:
             while True:
-                if (self.pyTivoServiceMonitorStop.isSet()):
+                if self.pyTivoServiceMonitorStop.is_set():
                     break
 
                 try:
                     status = win32serviceutil.QueryServiceStatus('pyTivo')
                     self.isPyTivoRunning = status[1] == win32service.SERVICE_RUNNING
                     self.UpdateIcon()
-                except:
+                except Exception:
                     break
 
                 time.sleep(2.0)
@@ -731,9 +749,8 @@ class pyTivoTray(wx.TaskBarIcon):
 
 
     def __del__(self):
-        if isWindows:
-            if self.mutex:
-                CloseHandle(self.mutex)
+        if isWindows and getattr(self, 'mutex', None):
+            CloseHandle(self.mutex)
 
 
 class pyTivoApp(wx.App):

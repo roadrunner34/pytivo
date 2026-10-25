@@ -1,6 +1,9 @@
-from Tkinter import *
-import tkSimpleDialog, tkFileDialog
-import os, sys, ConfigParser
+import configparser
+import os
+import sys
+from tkinter import *
+from tkinter import filedialog as tkFileDialog
+from tkinter import simpledialog as tkSimpleDialog
 
 class EditShare(tkSimpleDialog.Dialog):
 
@@ -12,8 +15,10 @@ class EditShare(tkSimpleDialog.Dialog):
         tkSimpleDialog.Dialog.__init__(self, parent, title)
 
     def get_dir(self):
-        self.e2.delete(0, END)
-        self.e2.insert(0, os.path.normpath(tkFileDialog.askdirectory()))
+        path = tkFileDialog.askdirectory()
+        if path:
+            self.e2.delete(0, END)
+            self.e2.insert(0, os.path.normpath(path))
 
     def body(self, master):
         Label(master, text="Name:").grid(row=0)
@@ -36,8 +41,8 @@ class EditShare(tkSimpleDialog.Dialog):
         if not self.plugin.get():
             self.plugin.set('video')
 
-        for i, name in zip(xrange(3), ('video', 'music', 'photo')):
-            b = Radiobutton(master, text=name, variable=self.plugin, 
+        for i, name in enumerate(('video', 'music', 'photo')):
+            b = Radiobutton(master, text=name, variable=self.plugin,
                 value=name).grid(row=i, column=3)
 
         return self.e1 # initial focus
@@ -50,7 +55,7 @@ class EditShare(tkSimpleDialog.Dialog):
 class pyTivoConfigurator(Frame):
 
     section = None
-        
+
     def buildContainerList(self):
         header = Frame(self)
         header.pack(fill=X)
@@ -65,7 +70,7 @@ class pyTivoConfigurator(Frame):
         self.container_list.bind("<Double-Button-1>", self.selected)
 
     def selected(self, e):
-        if not self.container_list.curselection(): 
+        if not self.container_list.curselection():
             return
         index = self.container_list.curselection()[0]
         self.section = self.container_list.get(index)
@@ -100,7 +105,7 @@ class pyTivoConfigurator(Frame):
             self.updateContainerList()
 
     def delete(self):
-        if not self.container_list.curselection(): 
+        if not self.container_list.curselection():
             return
         index = self.container_list.curselection()[0]
         section = self.container_list.get(index)
@@ -140,18 +145,21 @@ class pyTivoConfigurator(Frame):
                 self.container_list.insert(END, section)
 
     def readConfig(self):
-        self.config = ConfigParser.ConfigParser()
-        self.config.read(self.config_file)
+        self.config = configparser.ConfigParser(interpolation=None)
+        self.config.read(self.config_file, encoding='utf-8')
+        if not self.config.has_section('Server'):
+            self.config.add_section('Server')
 
     def writeConfig(self):
-        self.config.write(open(self.config_file, 'w'))
+        with open(self.config_file, 'w', encoding='utf-8') as f:
+            self.config.write(f)
 
     def __init__(self, master=None):
         Frame.__init__(self, master)
         self.master.title('pyTivoConfigurator')
         self.pack(fill=BOTH, expand=1)
 
-        p = os.path.dirname(__file__)
+        p = os.path.dirname(os.path.abspath(__file__))
         self.config_file = os.path.join(p, 'pyTivo.conf')
 
         self.readConfig()

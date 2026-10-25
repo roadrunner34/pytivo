@@ -2,9 +2,9 @@ import logging
 import re
 import socket
 import struct
+import threading
 import time
 import uuid
-from threading import Timer
 from urllib.parse import quote
 
 import zeroconf
@@ -17,15 +17,25 @@ DESKTOP_URL = '/Desktop'
 PLATFORM_MAIN = 'pyTivo'
 PLATFORM_VIDEO = 'pc/pyTivo'    # For the nice icon
 
-class ZCListener:
+def _text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace')
+    return value
+
+class ZCListener(zeroconf.ServiceListener):
     def __init__(self, names):
         self.names = names
 
-    def remove_service(self, server, type, name):
-        self.names.remove(name.replace('.' + type, ''))
+    def remove_service(self, server, type_, name):
+        short = name.replace('.' + type_, '')
+        if short in self.names:
+            self.names.remove(short)
 
-    def add_service(self, server, type, name):
-        self.names.append(name.replace('.' + type, ''))
+    def add_service(self, server, type_, name):
+        self.names.append(name.replace('.' + type_, ''))
+
+    def update_service(self, server, type_, name):
+        pass
 
 class ZCBroadcast:
     def __init__(self, logger):
@@ -33,26 +43,29 @@ class ZCBroadcast:
         self.share_names = []
         self.share_info = []
         self.logger = logger
-        self.rz = zeroconf.Zeroconf()
+        self.rz = zeroconf.Zeroconf(ip_version=zeroconf.IPVersion.V4Only)
         self.renamed = {}
         old_titles = self.scan()
         address = socket.inet_aton(config.get_ip())
         port = int(config.getPort())
+        server = socket.gethostname().split('.')[0] + '.local.'
 
         """ Announce Desktop via Zeroconf. """
         desc = {'path': DESKTOP_URL,
                 'platform': PLATFORM_MAIN, 'protocol': 'http'}
         info = zeroconf.ServiceInfo('_pytivo._tcp.local.',
                                     'pyTivo Desktop._pytivo._tcp.local.',
-                                    address, port, 0, 0, desc)
-        self.rz.register_service(info)
+                                    addresses=[address], port=port,
+                                    properties=desc, server=server)
+        self.rz.register_service(info, allow_name_change=True)
+        self.share_info.append(info)
 
         """ Announce our shares via Zeroconf. """
         logger.info('Announcing shares...')
         for section, settings in config.getShares():
             try:
                 ct = GetPlugin(settings['type']).CONTENT_TYPE
-            except:
+            except Exception:
                 continue
             if ct.startswith('x-container/'):
                 if 'video' in ct:
@@ -73,7 +86,8 @@ class ZCBroadcast:
                     self.renamed[section] = title
                 info = zeroconf.ServiceInfo('_%s._tcp.local.' % tt,
                     '%s._%s._tcp.local.' % (title, tt),
-                    address, port, 0, 0, desc)
+                    addresses=[address], port=port, properties=desc,
+                    server=server)
                 self.rz.register_service(info)
                 self.share_info.append(info)
 
@@ -85,13 +99,15 @@ class ZCBroadcast:
         self.logger.info('Scanning for TiVos...')
 
         # Get the names of servers offering TiVo videos
-        browser = zeroconf.ServiceBrowser(self.rz, VIDS, None, ZCListener(names))
+        browser = zeroconf.ServiceBrowser(self.rz, VIDS,
+                                          listener=ZCListener(names))
 
         # Give them up to 30 seconds to respond
         waitSeconds = 0
         while not names and waitSeconds < 30:
             time.sleep(1)
             waitSeconds += 1
+        browser.cancel()
 
         # Any results?
         if names:
@@ -100,19 +116,22 @@ class ZCBroadcast:
             self.logger.warning('No TiVos found!')
 
         # Now get the addresses -- this is the slow part
-        for name in names:
+        for name in list(names):
             info = self.rz.get_service_info(VIDS, name + '.' + VIDS)
-            if info:
-                tsn = info.properties.get('TSN')
-                if config.get_server('togo_all'):
-                    tsn = info.properties.get('tsn', tsn)
-                if tsn:
-                    address = socket.inet_ntoa(info.address)
-                    port = info.port
-                    config.tivos[tsn] = {'name': name, 'address': address, 
-                                         'port': port}
-                    config.tivos[tsn].update(info.properties)
-                    self.logger.info(name + ' - ' + address)
+            if not info:
+                continue
+            properties = {_text(k): _text(v)
+                          for k, v in info.properties.items()}
+            tsn = properties.get('TSN')
+            if config.get_server('togo_all'):
+                tsn = properties.get('tsn', tsn)
+            addresses = info.parsed_addresses(zeroconf.IPVersion.V4Only)
+            if tsn and addresses:
+                address = addresses[0]
+                config.tivos[tsn] = {'name': name, 'address': address,
+                                     'port': info.port}
+                config.tivos[tsn].update(properties)
+                self.logger.info(name + ' - ' + address)
 
         return names
 
@@ -127,26 +146,25 @@ class Beacon:
         self.UDPSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.UDPSock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.services = []
+        self.timer = None
+        self.logger = logging.getLogger('pyTivo.beacon')
 
         self.platform = PLATFORM_VIDEO
         for section, settings in config.getShares():
             try:
                 ct = GetPlugin(settings['type']).CONTENT_TYPE
-            except:
+            except Exception:
                 continue
             if ct in ('x-container/tivo-music', 'x-container/tivo-photos'):
                 self.platform = PLATFORM_MAIN
                 break
 
+        self.bd = None
         if config.get_zc():
-            logger = logging.getLogger('pyTivo.beacon')
             try:
-                self.bd = ZCBroadcast(logger)
-            except:
-                logger.error('Zeroconf failure')
-                self.bd = None
-        else:
-            self.bd = None
+                self.bd = ZCBroadcast(self.logger)
+            except Exception:
+                self.logger.exception('Zeroconf failure')
 
     def add_service(self, service):
         self.services.append(service)
@@ -167,7 +185,7 @@ class Beacon:
         else:
             beacon.append('services=TiVoMediaServer:0/http')
 
-        return '\n'.join(beacon) + '\n'
+        return ('\n'.join(beacon) + '\n').encode('utf-8')
 
     def send_beacon(self):
         beacon_ips = config.getBeaconAddresses()
@@ -181,21 +199,23 @@ class Beacon:
                         if result < 0:
                             break
                         packet = packet[result:]
-                except Exception as e:
-                    print(e)
+                except OSError as e:
+                    self.logger.info('Beacon to %s failed: %s', beacon_ip, e)
 
     def start(self):
         self.send_beacon()
-        self.timer = Timer(60, self.start)
+        self.timer = threading.Timer(60, self.start)
+        self.timer.daemon = True
         self.timer.start()
 
     def stop(self):
-        self.timer.cancel()
+        if self.timer:
+            self.timer.cancel()
         if self.bd:
             self.bd.shutdown()
 
     def recv_bytes(self, sock, length):
-        block = ''
+        block = b''
         while len(block) < length:
             add = sock.recv(length - len(block))
             if not add:
@@ -212,26 +232,30 @@ class Beacon:
 
     def listen(self):
         """ For the direct-connect, TCP-style beacon """
-        import thread
 
         def server():
             TCPSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            TCPSock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             TCPSock.bind(('', 2190))
             TCPSock.listen(5)
 
             while True:
                 # Wait for a connection
                 client, address = TCPSock.accept()
+                try:
+                    # Accept (and discard) the client's beacon
+                    self.recv_packet(client)
 
-                # Accept (and discard) the client's beacon
-                self.recv_packet(client)
+                    # Send ours
+                    self.send_packet(client, self.format_beacon('connected'))
+                except (OSError, struct.error) as msg:
+                    self.logger.info('Beacon exchange with %s failed: %s',
+                                     address[0], msg)
+                finally:
+                    client.close()
 
-                # Send ours
-                self.send_packet(client, self.format_beacon('connected'))
-
-                client.close()
-
-        thread.start_new_thread(server, ())
+        threading.Thread(target=server, name='beacon-listen',
+                         daemon=True).start()
 
     def get_name(self, address):
         """ Exchange beacons, and extract the machine name. """
@@ -239,13 +263,15 @@ class Beacon:
         machine_name = re.compile('machine=(.*)\n').search
 
         try:
-            tsock = socket.socket()
-            tsock.connect((address, 2190))
-            self.send_packet(tsock, our_beacon)
-            tivo_beacon = self.recv_packet(tsock)
-            tsock.close()
+            tsock = socket.create_connection((address, 2190), timeout=5)
+            try:
+                self.send_packet(tsock, our_beacon)
+                tivo_beacon = self.recv_packet(tsock).decode('utf-8',
+                                                             'replace')
+            finally:
+                tsock.close()
             name = machine_name(tivo_beacon).groups()[0]
-        except:
+        except (OSError, struct.error, AttributeError):
             name = address
 
         return name

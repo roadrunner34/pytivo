@@ -14,7 +14,7 @@ mode = {}
 options = {}
 default = {}
 titlemode = True
-f = open(os.path.join(SCRIPTDIR, 'help.txt'))
+f = open(os.path.join(SCRIPTDIR, 'help.txt'), encoding='utf-8')
 try:
     for line in f:
         line = line.strip()
@@ -51,8 +51,9 @@ try:
 finally:
     f.close()
 ## Done building help list
-plugins = [p for p in os.listdir(os.path.dirname(SCRIPTDIR))
-           if not p.startswith(('__init__', 'togo', 'settings'))]
+plugins = sorted(p for p in os.listdir(os.path.dirname(SCRIPTDIR))
+                 if not p.startswith(('_', '.', 'togo', 'settings')) and
+                 os.path.isdir(os.path.join(os.path.dirname(SCRIPTDIR), p)))
 options['type'] = plugins
 
 def gethelp():

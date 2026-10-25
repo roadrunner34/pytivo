@@ -12,45 +12,47 @@
 #                          mode always; allow larger thumbnails
 # Version 0.9,  Dec. 13 -- different sort types
 # Version 0.8,  Dec. 12 -- faster thumbnails, better quality full views
-# Version 0.7,  Dec. 11 -- fix missing item on thumbnail scroll up, 
+# Version 0.7,  Dec. 11 -- fix missing item on thumbnail scroll up,
 #                          better anchor and path handling
 # Version 0.6,  Dec. 10 -- cache recursive lookups for faster slide shows
 # Version 0.5,  Dec. 10 -- fix reboot problem by keeping directory names
 #                          (vs. contents) out of "Recurse=Yes" lists
 # Version 0.4,  Dec. 10 -- drop the use of playable_cache, add path
 #                          separator kludges for Windows
-# Version 0.3,  Dec. 8  -- revert to using PixelShape, workaround for 
+# Version 0.3,  Dec. 8  -- revert to using PixelShape, workaround for
 #                          Image.save() under Windows
 # Version 0.2,  Dec. 8  -- thumbnail caching, faster thumbnails
 # Version 0.1,  Dec. 7, 2007
 
+import logging
 import os
 import re
-import random
 import subprocess
 import sys
 import tempfile
-import threading
 import time
-import unicodedata
-import urllib
-from cStringIO import StringIO
+from io import BytesIO
+from urllib.parse import unquote_plus
 from xml.sax.saxutils import escape
+
+logger = logging.getLogger('pyTivo.photo')
 
 use_pil = True
 try:
     from PIL import Image
-except ImportError:
     try:
-        import Image
-    except ImportError:
-        use_pil = False
-        print 'Python Imaging Library not found; using FFmpeg'
+        LANCZOS = Image.Resampling.LANCZOS
+    except AttributeError:      # Pillow < 9.1
+        LANCZOS = Image.LANCZOS
+except ImportError:
+    use_pil = False
+    logger.info('Python Imaging Library not found; using FFmpeg')
 
 import config
 from Cheetah.Template import Template
 from lrucache import LRUCache
-from plugin import EncodeUnicode, Plugin, quote, unquote
+from plugin import (EncodeUnicode, Plugin, quote, unquote, list_files,
+                    move_to_front, shuffle)
 from plugins.video.transcode import kill
 
 # determine if application is a script file or frozen exe
@@ -65,55 +67,42 @@ exif_date = re.compile(r'(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)').search
 
 # Match Exif orientation, Intel and Motorola versions
 exif_orient_i = \
-    re.compile('\x12\x01\x03\x00\x01\x00\x00\x00(.)\x00\x00\x00').search
+    re.compile(b'\x12\x01\x03\x00\x01\x00\x00\x00(.)\x00\x00\x00',
+               re.DOTALL).search
 exif_orient_m = \
-    re.compile('\x01\x12\x00\x03\x00\x00\x00\x01\x00(.)\x00\x00').search
+    re.compile(b'\x01\x12\x00\x03\x00\x00\x00\x01\x00(.)\x00\x00',
+               re.DOTALL).search
 
 # Find size in FFmpeg output
 ffmpeg_size = re.compile(r'.*Video: .+, (\d+)x(\d+)[, ].*')
 
 # Preload the template
-tname = os.path.join(SCRIPTDIR, 'templates', 'container.tmpl')
-iname = os.path.join(SCRIPTDIR, 'templates', 'item.tmpl')
-PHOTO_TEMPLATE = file(tname, 'rb').read()
-ITEM_TEMPLATE = file(iname, 'rb').read()
+def tmpl(name):
+    with open(os.path.join(SCRIPTDIR, 'templates', name),
+              encoding='utf-8') as f:
+        return f.read()
 
-JFIF_TAG = '\xff\xe0\x00\x10JFIF\x00\x01\x02\x00\x00\x01\x00\x01\x00\x00'
+PHOTO_TEMPLATE = tmpl('container.tmpl')
+ITEM_TEMPLATE = tmpl('item.tmpl')
+
+JFIF_TAG = b'\xff\xe0\x00\x10JFIF\x00\x01\x02\x00\x00\x01\x00\x01\x00\x00'
+
+class FileData:
+    def __init__(self, name, isdir):
+        self.name = name
+        self.isdir = isdir
+        st = os.stat(name)
+        self.cdate = st.st_ctime
+        self.mdate = st.st_mtime
 
 class Photo(Plugin):
-    
+
     CONTENT_TYPE = 'x-container/tivo-photos'
 
-    class LockedLRUCache(LRUCache):
-        def __init__(self, num):
-            LRUCache.__init__(self, num)
-            self.lock = threading.RLock()
-
-        def acquire(self, blocking=1):
-            return self.lock.acquire(blocking)
-
-        def release(self):
-            self.lock.release()
-
-        def __setitem__(self, key, obj):
-            self.acquire()
-            try:
-                LRUCache.__setitem__(self, key, obj)
-            finally:
-                self.release()
-
-        def __getitem__(self, key):
-            item = None
-            self.acquire()
-            try:
-                item = LRUCache.__getitem__(self, key)
-            finally:
-                self.release()
-            return item
-
-    media_data_cache = LockedLRUCache(300)  # info and thumbnails
-    recurse_cache = LockedLRUCache(5)       # recursive directory lists
-    dir_cache = LockedLRUCache(10)          # non-recursive lists
+    # LRUCache is thread-safe on its own
+    media_data_cache = LRUCache(300)  # info and thumbnails
+    recurse_cache = LRUCache(5)       # recursive directory lists
+    dir_cache = LRUCache(10)          # non-recursive lists
 
     def new_size(self, oldw, oldh, width, height, pshape):
         pixw, pixh = [int(x) for x in pshape.split(':')]
@@ -135,8 +124,8 @@ class Photo(Plugin):
 
     def parse_exif(self, exif, rot, attrs):
         # Capture date
-        if attrs and not 'odate' in attrs:
-            date = exif_date(exif)
+        if attrs and 'odate' not in attrs:
+            date = exif_date(exif.decode('latin-1'))
             if date:
                 year, month, day, hour, minute, second = (int(x)
                     for x in date.groups())
@@ -149,21 +138,21 @@ class Photo(Plugin):
         if attrs and 'exifrot' in attrs:
             rot = (rot + attrs['exifrot']) % 360
         else:
-            if exif[6] == 'I':
+            if exif[6:7] == b'I':
                 orient = exif_orient_i(exif)
             else:
                 orient = exif_orient_m(exif)
 
             if orient:
                 exifrot = {
-                    1:   0, 
+                    1:   0,
                     2:   0,
                     3: 180,
                     4: 180,
                     5:  90,
                     6: -90,
                     7: -90,
-                    8:  90}.get(ord(orient.group(1)), 0)
+                    8:  90}.get(orient.group(1)[0], 0)
 
                 rot = (rot + exifrot) % 360
                 if attrs:
@@ -174,14 +163,15 @@ class Photo(Plugin):
     def get_image_pil(self, path, width, height, pshape, rot, attrs):
         # Load
         try:
-            pic = Image.open(unicode(path, 'utf-8'))
-        except Exception, msg:
+            pic = Image.open(path)
+        except Exception as msg:
             return False, 'Could not open %s -- %s' % (path, msg)
 
         # Set draft mode
         try:
-            pic.draft('RGB', (width, height))
-        except Exception, msg:
+            if width and height:
+                pic.draft('RGB', (width, height))
+        except Exception as msg:
             return False, 'Failed to set draft mode for %s -- %s' % (path, msg)
 
         # Read Exif data if possible
@@ -191,15 +181,15 @@ class Photo(Plugin):
         # Rotate
         try:
             if rot:
-                pic = pic.rotate(rot)
-        except Exception, msg:
+                pic = pic.rotate(rot, expand=True)
+        except Exception as msg:
             return False, 'Rotate failed on %s -- %s' % (path, msg)
 
         # De-palletize
         try:
             if pic.mode not in ('RGB', 'L'):
                 pic = pic.convert('RGB')
-        except Exception, msg:
+        except Exception as msg:
             return False, 'Palette conversion failed on %s -- %s' % (path, msg)
 
         # Old size
@@ -208,47 +198,46 @@ class Photo(Plugin):
         width, height = self.new_size(oldw, oldh, width, height, pshape)
 
         try:
-            pic = pic.resize((width, height), Image.ANTIALIAS)
-        except Exception, msg:
+            pic = pic.resize((width, height), LANCZOS)
+        except Exception as msg:
             return False, 'Resize failed on %s -- %s' % (path, msg)
 
         # Re-encode
         try:
-            out = StringIO()
+            out = BytesIO()
             pic.save(out, 'JPEG', quality=85)
             encoded = out.getvalue()
-            out.close()
-        except Exception, msg:
+        except Exception as msg:
             return False, 'Encode failed on %s -- %s' % (path, msg)
 
         return True, encoded
 
-    def get_size_ffmpeg(self, ffmpeg_path, fname):
-        cmd = [ffmpeg_path, '-i', fname]
-        # Windows and other OS buffer 4096 and ffmpeg can output more
-        # than that.
-        err_tmp = tempfile.TemporaryFile()
-        ffmpeg = subprocess.Popen(cmd, stderr=err_tmp,
-                                  stdout=subprocess.PIPE,
-                                  stdin=subprocess.PIPE)
+    def run_ffmpeg(self, cmd):
+        """Run ffmpeg, honoring the configured time limit. Returns
+        (True, stdout bytes, stderr text) or (False, message, '')."""
+        # ffmpeg can write more than a pipe buffers, so use files
+        with tempfile.TemporaryFile() as out_tmp, \
+             tempfile.TemporaryFile() as err_tmp:
+            ffmpeg = subprocess.Popen(cmd, stdout=out_tmp, stderr=err_tmp,
+                                      stdin=subprocess.DEVNULL)
 
-        # wait configured # of seconds: if ffmpeg is not back give up
-        limit = config.getFFmpegWait()
-        if limit:
-            for i in xrange(limit * 20):
-                time.sleep(.05)
-                if not ffmpeg.poll() == None:
-                    break
-
-            if ffmpeg.poll() == None:
+            # wait configured # of seconds: if ffmpeg is not back give up
+            limit = config.getFFmpegWait()
+            try:
+                ffmpeg.wait(timeout=limit or None)
+            except subprocess.TimeoutExpired:
                 kill(ffmpeg)
-                return False, 'FFmpeg timed out'
-        else:
-            ffmpeg.wait()
+                return False, 'FFmpeg timed out', ''
 
-        err_tmp.seek(0)
-        output = err_tmp.read()
-        err_tmp.close()
+            out_tmp.seek(0)
+            err_tmp.seek(0)
+            return (True, out_tmp.read(),
+                    err_tmp.read().decode('utf-8', 'replace'))
+
+    def get_size_ffmpeg(self, ffmpeg_path, fname):
+        status, _, output = self.run_ffmpeg([ffmpeg_path, '-i', fname])
+        if not status:
+            return False, _
 
         x = ffmpeg_size.search(output)
         if x:
@@ -264,9 +253,7 @@ class Photo(Plugin):
         if not ffmpeg_path:
             return False, 'FFmpeg not found'
 
-        fname = unicode(path, 'utf-8')
-        if sys.platform == 'win32':
-            fname = fname.encode('cp1252')
+        fname = path
 
         if attrs and 'size' in attrs:
             result = attrs['size']
@@ -296,37 +283,21 @@ class Photo(Plugin):
         filters += 'format=yuvj420p,'
 
         neww, newh = oldw, oldh
-        while (neww / width >= 50) or (newh / height >= 50):
-            neww /= 2
-            newh /= 2
+        while (neww // width >= 50) or (newh // height >= 50):
+            neww //= 2
+            newh //= 2
             filters += 'scale=%d:%d,' % (neww, newh)
 
         filters += 'scale=%d:%d' % (width, height)
 
         cmd = [ffmpeg_path, '-i', fname, '-vf', filters, '-f', 'mjpeg', '-']
-        jpeg_tmp = tempfile.TemporaryFile()
-        ffmpeg = subprocess.Popen(cmd, stdout=jpeg_tmp,
-                                  stdin=subprocess.PIPE)
+        status, output, _ = self.run_ffmpeg(cmd)
+        if not status:
+            return False, output
+        if not output:
+            return False, 'FFmpeg produced no image'
 
-        # wait configured # of seconds: if ffmpeg is not back give up
-        limit = config.getFFmpegWait()
-        if limit:
-            for i in xrange(limit * 20):
-                time.sleep(.05)
-                if not ffmpeg.poll() == None:
-                    break
-
-            if ffmpeg.poll() == None:
-                kill(ffmpeg)
-                return False, 'FFmpeg timed out'
-        else:
-            ffmpeg.wait()
-
-        jpeg_tmp.seek(0)
-        output = jpeg_tmp.read()
-        jpeg_tmp.close()
-
-        if 'JFIF' not in output[:10]:
+        if b'JFIF' not in output[:10]:
             output = output[:2] + JFIF_TAG + output[2:]
 
         return True, output
@@ -340,10 +311,7 @@ class Photo(Plugin):
             handler.send_error(415)
             return
 
-        try:
-            attrs = self.media_data_cache[path]
-        except:
-            attrs = None
+        attrs = self.media_data_cache.get(path)
 
         # Set rotation
         if attrs:
@@ -372,10 +340,10 @@ class Photo(Plugin):
 
         # Build a new image
         if use_pil:
-            status, result = self.get_image_pil(path, width, height, 
+            status, result = self.get_image_pil(path, width, height,
                                                 pshape, rot, attrs)
         else:
-            status, result = self.get_image_ffmpeg(path, width, height, 
+            status, result = self.get_image_ffmpeg(path, width, height,
                                                    pshape, rot, attrs)
 
         if status:
@@ -431,15 +399,14 @@ class Photo(Plugin):
         t.container = handler.cname
         t.files, t.total, t.start = self.get_files(handler, query,
             ImageFileFilter)
-        t.files = map(media_data, t.files)
+        t.files = [media_data(f) for f in t.files]
         t.quote = quote
         t.escape = escape
 
         handler.send_xml(str(t))
 
     def QueryItem(self, handler, query):
-        uq = urllib.unquote_plus
-        splitpath = [x for x in uq(query['Url'][0]).split('/') if x]
+        splitpath = [x for x in unquote_plus(query['Url'][0]).split('/') if x]
         path = os.path.join(handler.container['path'], *splitpath[1:])
 
         if path in self.media_data_cache:
@@ -452,98 +419,23 @@ class Photo(Plugin):
 
     def get_files(self, handler, query, filterFunction):
 
-        class FileData:
-            def __init__(self, name, isdir):
-                self.name = name
-                self.isdir = isdir
-                st = os.stat(unicode(name, 'utf-8'))
-                self.cdate = st.st_ctime
-                self.mdate = st.st_mtime
-
-        class SortList:
-            def __init__(self, files):
-                self.files = files
-                self.unsorted = True
-                self.sortby = None
-                self.last_start = 0
-                self.lock = threading.RLock()
-
-            def acquire(self, blocking=1):
-                return self.lock.acquire(blocking)
-
-            def release(self):
-                self.lock.release()
-
-        def build_recursive_list(path, recurse=True):
-            files = []
-            path = unicode(path, 'utf-8')
-            try:
-                for f in os.listdir(path):
-                    if f.startswith('.'):
-                        continue
-                    f = os.path.join(path, f)
-                    isdir = os.path.isdir(f)
-                    if sys.platform == 'darwin':
-                        f = unicodedata.normalize('NFC', f)
-                    f = f.encode('utf-8')
-                    if recurse and isdir:
-                        files.extend(build_recursive_list(f))
-                    else:
-                       if isdir or filterFunction(f):
-                           files.append(FileData(f, isdir))
-            except:
-                pass
-
-            return files
-
-        def name_sort(x, y):
-            return cmp(x.name, y.name)
-
-        def cdate_sort(x, y):
-            return cmp(x.cdate, y.cdate)
-
-        def mdate_sort(x, y):
-            return cmp(x.mdate, y.mdate)
-
-        def dir_sort(x, y):
-            if x.isdir == y.isdir:
-                return sortfunc(x, y)
-            else:
-                return y.isdir - x.isdir
-
         path = self.get_local_path(handler, query)
 
         # Build the list
         recurse = query.get('Recurse', ['No'])[0] == 'Yes'
 
-        filelist = []
-        rc = self.recurse_cache
-        dc = self.dir_cache
-        if recurse:
-            if path in rc:
-                filelist = rc[path]
-        else:
-            updated = os.path.getmtime(unicode(path, 'utf-8'))
-            if path in dc and dc.mtime(path) >= updated:
-                filelist = dc[path]
-            for p in rc:
-                if path.startswith(p) and rc.mtime(p) < updated:
-                    del rc[p]
+        def build(path, recurse):
+            return list_files(path, filterFunction, recurse, FileData,
+                              keep_dirs=True)
 
-        if not filelist:
-            filelist = SortList(build_recursive_list(path, recurse))
+        filelist = self.cached_file_list(path, recurse, build)
 
-            if recurse:
-                rc[path] = filelist
-            else:
-                dc[path] = filelist
-
-        filelist.acquire()
+        filelist.lock.acquire()
 
         # Sort it
         seed = ''
         start = ''
-        sortby = query.get('SortOrder', ['Normal'])[0] 
+        sortby = query.get('SortOrder', ['Normal'])[0]
         if 'Random' in sortby:
             if 'RandomSeed' in query:
                 seed = query['RandomSeed'][0]
@@ -554,36 +446,28 @@ class Photo(Plugin):
 
         if filelist.unsorted or filelist.sortby != sortby:
             if 'Random' in sortby:
-                self.random_lock.acquire()
-                if seed:
-                    random.seed(seed)
-                random.shuffle(filelist.files)
-                self.random_lock.release()
+                shuffle(filelist.files, seed)
                 if start:
                     local_base_path = self.get_local_base_path(handler, query)
                     start = unquote(start)
                     start = start.replace(os.path.sep + handler.cname,
                                           local_base_path, 1)
-                    filenames = [x.name for x in filelist.files]
-                    try:
-                        index = filenames.index(start)
-                        i = filelist.files.pop(index)
-                        filelist.files.insert(0, i)
-                    except ValueError:
-                        handler.server.logger.warning('Start not found: ' +
-                                                      start)
+                    move_to_front(filelist.files, start,
+                                  handler.server.logger)
             else:
                 if 'CaptureDate' in sortby:
-                    sortfunc = cdate_sort
+                    sortkey = lambda x: x.cdate
                 elif 'LastChangeDate' in sortby:
-                    sortfunc = mdate_sort
+                    sortkey = lambda x: x.mdate
                 else:
-                    sortfunc = name_sort
+                    sortkey = lambda x: x.name
 
                 if 'Type' in sortby:
-                    filelist.files.sort(dir_sort)
+                    # Directories first
+                    filelist.files.sort(key=lambda x: (not x.isdir,
+                                                       sortkey(x)))
                 else:
-                    filelist.files.sort(sortfunc)
+                    filelist.files.sort(key=sortkey)
 
             filelist.sortby = sortby
             filelist.unsorted = False
@@ -602,5 +486,5 @@ class Photo(Plugin):
         files, total, start = self.item_count(handler, query, handler.cname,
                                               files, filelist.last_start)
         filelist.last_start = start
-        filelist.release()
+        filelist.lock.release()
         return files, total, start

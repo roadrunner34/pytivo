@@ -1,25 +1,25 @@
-import http.server as BaseHTTPServer
-import socketserver as SocketServer
-import cgi
+import email.parser
+import email.policy
 import gzip
+import http.server
 import logging
 import mimetypes
 import os
-import sys
 import shutil
 import socket
-import time
-from io import StringIO
+import socketserver
+import sys
 from email.utils import formatdate
-from urllib.parse import unquote_plus, quote
+from urllib.parse import parse_qs, quote, unquote_plus
 from xml.sax.saxutils import escape
 
 from Cheetah.Template import Template
+
 import config
-from plugin import GetPlugin, EncodeUnicode
+from plugin import EncodeUnicode, GetPlugin
 
 # determine if application is a script file or frozen exe
-SCRIPTDIR = os.path.dirname(__file__)
+SCRIPTDIR = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, 'frozen', False):
     SCRIPTDIR = sys._MEIPASS
 
@@ -52,22 +52,42 @@ BASE_HTML = """<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
 RELOAD = '<p>The <a href="%s">page</a> will reload in %d seconds.</p>'
 UNSUP = '<h3>Unsupported Command</h3> <p>Query:</p> <ul>%s</ul>'
 
-class TivoHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
+
+def parse_multipart(body, content_type):
+    """Parse a multipart/form-data body into a parse_qs style dict."""
+    message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(
+        b'Content-Type: ' + content_type.encode('latin-1') + b'\r\n\r\n' +
+        body)
+    query = {}
+    for part in message.iter_parts():
+        name = part.get_param('name', header='content-disposition')
+        if not name:
+            continue
+        payload = part.get_payload(decode=True) or b''
+        if part.get_filename() is None:
+            payload = payload.decode(part.get_content_charset('utf-8'),
+                                     'replace')
+        query.setdefault(name, []).append(payload)
+    return query
+
+
+class TivoHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+
     def __init__(self, server_address, RequestHandlerClass):
         self.containers = {}
         self.stop = False
         self.restart = False
+        self.in_service = False
+        self.beacon = None
         self.logger = logging.getLogger('pyTivo')
-        BaseHTTPServer.HTTPServer.__init__(self, server_address, RequestHandlerClass)
-        self.daemon_threads = True
+        http.server.HTTPServer.__init__(self, server_address,
+                                        RequestHandlerClass)
 
     def add_container(self, name, settings):
         if name in self.containers or name == 'TiVoConnect':
             raise Exception('Container Name in use')
-        try:
-            self.containers[name] = settings
-        except KeyError:
-            self.logger.error('Unable to add container ' + name)
+        self.containers[name] = settings
 
     def reset(self):
         self.containers.clear()
@@ -75,7 +95,7 @@ class TivoHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
             self.add_container(section, settings)
 
     def handle_error(self, request, client_address):
-        self.logger.exception('Exception during request from %s' % 
+        self.logger.exception('Exception during request from %s' %
                               (client_address,))
 
     def set_beacon(self, beacon):
@@ -84,36 +104,51 @@ class TivoHTTPServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
     def set_service_status(self, status):
         self.in_service = status
 
-class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-    def __init__(self, request, client_address, server):
-        self.wbufsize = 0x10000
-        self.server_version = 'pyTivo/1.0'
-        self.protocol_version = 'HTTP/1.1'
-        self.sys_version = ''
 
-        try:
-            BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request, client_address, server)
-        except Exception as msg:
-            self.server.logger.info(msg)
+class TivoHTTPHandler(http.server.BaseHTTPRequestHandler):
+    wbufsize = 0x10000
+    server_version = 'pyTivo/1.0'
+    protocol_version = 'HTTP/1.1'
+    sys_version = ''
 
     def setup(self):
-        BaseHTTPServer.BaseHTTPRequestHandler.setup(self)
-        self.request.settimeout(180) # This allows pyTivo to die when user selects Stop Transfer on the TiVo
+        http.server.BaseHTTPRequestHandler.setup(self)
+        # This allows pyTivo to die when user selects Stop Transfer on
+        # the TiVo
+        self.request.settimeout(180)
+
+    def handle(self):
+        # A TiVo routinely drops the connection mid-transfer (e.g. when
+        # the user stops a download); that's not worth a traceback.
+        try:
+            http.server.BaseHTTPRequestHandler.handle(self)
+        except (ConnectionError, socket.timeout) as msg:
+            self.server.logger.info('%s: %s', self.address_string(), msg)
+
+    def finish(self):
+        # finish() flushes the buffered output, which fails the same way
+        # if the TiVo has already hung up.
+        try:
+            http.server.BaseHTTPRequestHandler.finish(self)
+        except (ConnectionError, socket.timeout):
+            pass
 
     def address_string(self):
         host, port = self.client_address[:2]
         return host
 
     def version_string(self):
-        """ Override version_string() so it doesn't include the Python 
+        """ Override version_string() so it doesn't include the Python
             version.
 
         """
         return self.server_version
 
+    def get_tsn(self):
+        return self.headers.get('TiVo_TCD_ID', self.headers.get('tsn', ''))
+
     def do_GET(self):
-        tsn = self.headers.getheader('TiVo_TCD_ID',
-                                     self.headers.getheader('tsn', ''))
+        tsn = self.get_tsn()
         if not self.authorize(tsn):
             return
 
@@ -122,12 +157,16 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             if 'address' not in attr:
                 attr['address'] = self.address_string()
             if 'name' not in attr:
-                attr['name'] = self.server.beacon.get_name(attr['address'])
+                if self.server.beacon:
+                    attr['name'] = self.server.beacon.get_name(
+                        attr['address'])
+                else:
+                    attr['name'] = attr['address']
             config.tivos[tsn] = attr
 
         if '?' in self.path:
             path, opts = self.path.split('?', 1)
-            query = cgi.parse_qs(opts)
+            query = parse_qs(opts)
         else:
             path = self.path
             query = {}
@@ -144,17 +183,17 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self.infopage()
 
     def do_POST(self):
-        tsn = self.headers.getheader('TiVo_TCD_ID',
-                                     self.headers.getheader('tsn', ''))
+        tsn = self.get_tsn()
         if not self.authorize(tsn):
             return
-        ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
-        if ctype == 'multipart/form-data':
-            query = cgi.parse_multipart(self.rfile, pdict)
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length)
+        content_type = self.headers.get('Content-Type', '')
+        if content_type.startswith('multipart/form-data'):
+            query = parse_multipart(body, content_type)
         else:
-            length = int(self.headers.getheader('content-length'))
-            qs = self.rfile.read(length)
-            query = cgi.parse_qs(qs, keep_blank_values=1)
+            query = parse_qs(body.decode('utf-8', 'replace'),
+                             keep_blank_values=True)
         self.handle_query(query, tsn)
 
     def do_command(self, query, command, target, tsn):
@@ -172,14 +211,13 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return False
 
     def handle_query(self, query, tsn):
-        mname = False
         if 'Command' in query and len(query['Command']) >= 1:
 
             command = query['Command'][0]
 
             # If we are looking at the root container
             if (command == 'QueryContainer' and
-                (not 'Container' in query or query['Container'][0] == '/')):
+                ('Container' not in query or query['Container'][0] == '/')):
                 self.root_container()
                 return
 
@@ -192,7 +230,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             elif command == 'QueryItem':
                 path = query.get('Url', [''])[0]
                 splitpath = [x for x in unquote_plus(path).split('/') if x]
-                if splitpath and not '..' in splitpath:
+                if splitpath and '..' not in splitpath:
                     if self.do_command(query, command, splitpath[0], tsn):
                         return
 
@@ -213,7 +251,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 if hasattr(plugin, command):
                     method = getattr(plugin, command)
                     method(self, query)
-                    return True
+                    return
 
             elif command in ('FlushServer', 'ResetServer'):
                 # Does nothing -- included for completeness
@@ -228,28 +266,28 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.unsupported(query)
 
     def send_content_file(self, path):
-        lmdate = os.path.getmtime(path)
         try:
+            lmdate = os.path.getmtime(path)
             handle = open(path, 'rb')
-        except:
+        except OSError:
             self.send_error(404)
             return
 
-        # Send the header
-        mime = mimetypes.guess_type(path)[0]
-        self.send_response(200)
-        if mime:
-            self.send_header('Content-Type', mime)
-        self.send_header('Content-Length', os.path.getsize(path))
-        self.send_header('Last-Modified', formatdate(lmdate))
-        self.end_headers()
+        with handle:
+            # Send the header
+            mime = mimetypes.guess_type(path)[0]
+            self.send_response(200)
+            if mime:
+                self.send_header('Content-Type', mime)
+            self.send_header('Content-Length', os.path.getsize(path))
+            self.send_header('Last-Modified', formatdate(lmdate, usegmt=True))
+            self.end_headers()
 
-        # Send the body of the file
-        try:
-            shutil.copyfileobj(handle, self.wfile)
-        except:
-            pass
-        handle.close()
+            # Send the body of the file
+            try:
+                shutil.copyfileobj(handle, self.wfile)
+            except OSError:
+                pass
         self.wfile.flush()
 
     def handle_file(self, query, splitpath):
@@ -290,20 +328,19 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return False
 
     def log_message(self, format, *args):
-        if 'NoLog' in args[0]:
+        if args and isinstance(args[0], str) and 'NoLog' in args[0]:
             return
 
         self.server.logger.info("%s [%s] %s" % (self.address_string(),
-                                self.log_date_time_string(), format%args))
+                                self.log_date_time_string(), format % args))
 
     def send_fixed(self, page, mime, code=200, refresh=''):
+        if isinstance(page, str):
+            page = page.encode('utf-8')
         squeeze = (len(page) > 256 and mime.startswith('text') and
-            'gzip' in self.headers.getheader('Accept-Encoding', ''))
+            'gzip' in self.headers.get('Accept-Encoding', ''))
         if squeeze:
-            out = StringIO()
-            gzip.GzipFile(mode='wb', fileobj=out).write(page)
-            page = out.getvalue()
-            out.close()
+            page = gzip.compress(page)
         self.send_response(code)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', len(page))
@@ -327,7 +364,7 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.send_fixed(page, 'text/html; charset=utf-8', code, refresh)
 
     def root_container(self):
-        tsn = self.headers.getheader('TiVo_TCD_ID', '')
+        tsn = self.headers.get('TiVo_TCD_ID', '')
         tsnshares = config.getShares(tsn)
         tsncontainers = []
         for section, settings in tsnshares:
@@ -335,17 +372,14 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 mime = GetPlugin(settings['type']).CONTENT_TYPE
                 if mime.split('/')[1] in ('tivo-videos', 'tivo-music',
                                           'tivo-photos'):
-                    try:
-                        settings['content_type'] = mime
-                        tsncontainers.append((section, settings))
-                    except Exception as msg:
-                        self.server.logger.error(section + ' - ' + str(msg))
+                    settings['content_type'] = mime
+                    tsncontainers.append((section, settings))
             except Exception as msg:
                 self.server.logger.error(section + ' - ' + str(msg))
         t = Template(file=os.path.join(SCRIPTDIR, 'templates',
                                        'root_container.tmpl'),
                      filter=EncodeUnicode)
-        if self.server.beacon.bd:
+        if self.server.beacon and self.server.beacon.bd:
             t.renamed = self.server.beacon.bd.renamed
         else:
             t.renamed = {}
@@ -376,25 +410,27 @@ class TivoHTTPHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 for tsn in config.tivos:
                     if tsn and 'address' in config.tivos[tsn]:
                         t.togo += ('<a href="/TiVoConnect?' +
-                            'Command=NPL&amp;Container=' + quote(section) +  
+                            'Command=NPL&amp;Container=' + quote(section) +
                             '&amp;TiVo=' + config.tivos[tsn]['address'] +
-                            '">' + config.tivos[tsn]['name'] +
+                            '">' + escape(config.tivos[tsn].get('name',
+                                          config.tivos[tsn]['address'])) +
                             '</a><br>')
 
         self.send_html(str(t))
 
     def unsupported(self, query):
-        message = UNSUP % '\n'.join(['<li>%s: %s</li>' % (key, repr(value))
+        message = UNSUP % '\n'.join(['<li>%s: %s</li>' %
+                                     (escape(key), escape(repr(value)))
                                      for key, value in query.items()])
         text = BASE_HTML % message
         self.send_html(text, code=404)
 
     def redir(self, message, seconds=2):
-        url = self.headers.getheader('Referer')
+        url = self.headers.get('Referer')
         if url:
-            message += RELOAD % (url, seconds)
+            message += RELOAD % (escape(url), seconds)
             refresh = '%d; url=%s' % (seconds, url)
         else:
             refresh = ''
-        text = (BASE_HTML % message).encode('utf-8')
+        text = BASE_HTML % message
         self.send_html(text, refresh=refresh)

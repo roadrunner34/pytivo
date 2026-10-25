@@ -1,8 +1,7 @@
 import os
 import sys
 import logging
-from urllib.parse import unquote_plus
-from asar import AsarArchive
+from plugins.desktop.asar import AsarArchive
 
 from plugin import Plugin
 logger = logging.getLogger('pyTivo.desktop')
@@ -37,14 +36,18 @@ class Desktop(Plugin):
                 exedir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable)))))  # on Mac pyTivo is inside a .app bundle
                 asar_file = os.path.join(exedir, 'pyTivoDesktop.app', 'contents', 'resources', 'app.asar')
 
+            index_path = os.path.join(SCRIPTDIR, 'content', 'index.html')
             try:
                 with AsarArchive.open(asar_file) as archive:
                     archive.extract(os.path.join(SCRIPTDIR, 'content'))
 
-                index = file(os.path.join(SCRIPTDIR, 'content', 'index.html'), 'rb').read()
+                with open(index_path, encoding='utf-8') as f:
+                    index = f.read()
                 index = index.replace('./', '/Desktop/')
-                file(os.path.join(SCRIPTDIR, 'content', 'index.html'), 'w').write(index)
+                with open(index_path, 'w', encoding='utf-8') as f:
+                    f.write(index)
 
                 return True
-            except:
+            except (OSError, ValueError, KeyError) as msg:
+                logger.debug('Desktop content not extracted: %s', msg)
                 return False

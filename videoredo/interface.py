@@ -1,12 +1,13 @@
-import os
-import sys
-import struct
-import config
-from urllib.parse import unquote
 import logging
+import os
+import struct
+import sys
+from urllib.parse import unquote
 
 import comtypes
 import comtypes.client
+
+logger = logging.getLogger('pyTivo.videoredo')
 
 SCRIPTDIR = os.path.dirname(__file__)
 if getattr(sys, 'frozen', False):
@@ -22,25 +23,21 @@ class VideoReDo():
         self.is_v5 = False
         self.output_file = ''
 
-        try:
+        # check for v6 pro first, then v6, then v5
+        for progid, is_pro, is_v5 in (('VideoReDoPro6.VideoReDoSilent', True, False),
+                                      ('VideoReDo6.VideoReDoSilent', False, False),
+                                      ('VideoReDo5.VideoReDoSilent', False, True)):
             try:
-                vrd_silent = comtypes.client.CreateObject('VideoReDoPro6.VideoReDoSilent') # check for v6 pro first
-                self.is_pro = True
-            except:
-                try:
-                    vrd_silent = comtypes.client.CreateObject('VideoReDo6.VideoReDoSilent') # check for v6 next
-                except:
-                    try:
-                        vrd_silent = comtypes.client.CreateObject('VideoReDo5.VideoReDoSilent') # check for v5 last
-                        self.is_v5 = True
-                    except:
-                        pass
-
-            self.vrd = vrd_silent.VRDInterface
-            self.vrd_version = self.vrd.ProgramGetVersionNumber
-            logging.info(self.vrd_version)
-        except:
-            pass
+                vrd_silent = comtypes.client.CreateObject(progid)
+                self.vrd = vrd_silent.VRDInterface
+                self.vrd_version = self.vrd.ProgramGetVersionNumber
+            except Exception:
+                self.vrd = None
+                continue
+            self.is_pro = is_pro
+            self.is_v5 = is_v5
+            logger.info('VideoReDo %s', self.vrd_version)
+            break
 
 
     def __del__(self):
@@ -48,7 +45,7 @@ class VideoReDo():
             if self.vrd:
                 self.vrd.ProgramExit()
                 self.vrd.ReleaseDispatch()
-        except:
+        except Exception:
             pass
 
         comtypes.CoUninitialize()
@@ -82,7 +79,7 @@ class VideoReDo():
                                 profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
 
                         profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
-        except:
+        except Exception:
             pass
 
         return profiles
@@ -108,7 +105,7 @@ class VideoReDo():
                                 profiles[profile_name]['enabled'] = self.vrd.ProfilesGetProfileIsEnabled(i)
 
                             profiles[profile_name]['extension'] = self.vrd.ProfilesGetProfileExtension(i)
-        except:
+        except Exception:
             pass
 
         return profiles
@@ -132,7 +129,7 @@ class VideoReDo():
                     if self.vrd.FileOpen(in_file, False):
                         if self.vrd.FileSaveAs(out_file, profile):
                             return True
-            except:
+            except Exception:
                 pass
 
         return False
@@ -142,7 +139,7 @@ class VideoReDo():
         try:
             if self.vrd:
                 self.vrd.FileClose()
-        except:
+        except Exception:
             pass
 
 
@@ -167,7 +164,7 @@ class VideoReDo():
                             if self.vrd.FileOpen(in_file, False):
                                 if self.vrd.FileSaveAs(out_file, save_profile):
                                     return True
-            except:
+            except Exception:
                 pass
 
         return False
@@ -185,13 +182,13 @@ class VideoReDo():
                     try:
                         if (header[7] & 0x20 != 0):
                             is_ts_file = True
-                    except:
+                    except Exception:
                         pass
                 else:
                     try:
                         if struct.unpack_from('>B', header, 0)[0] != 0x47:
                             is_ts_file = True
-                    except:
+                    except Exception:
                         pass
 
                 f.close()
@@ -222,7 +219,7 @@ class VideoReDo():
                         if self.vrd.FileOpen(in_file, True):
                             if self.vrd.FileSaveAs(out_file, profile_path):
                                 return True
-            except:
+            except Exception:
                 pass
 
         return False
@@ -242,7 +239,7 @@ class VideoReDo():
 
                 status['percent'] = self.vrd.OutputGetPercentComplete
                 status['text'] = self.vrd.OutputGetStatusText
-        except:
+        except Exception:
             pass
 
         return status
@@ -253,7 +250,7 @@ class VideoReDo():
             if self.vrd:
                 if self.vrd.OutputGetState != 0:
                     self.vrd.OutputAbort()
-        except:
+        except Exception:
             pass
 
 
@@ -266,7 +263,7 @@ class VideoReDo():
                 else:
                     if self.vrd.OutputGetState == 2:
                         self.vrd.OutputPause(False)
-        except:
+        except Exception:
             pass
 
 

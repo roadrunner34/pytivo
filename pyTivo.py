@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import logging
 import os
@@ -6,15 +6,9 @@ import platform
 import sys
 import time
 
-if sys.version_info[0] < 3:
-    print('ERROR: pyTivo requires Python >= 3.0\n')
+if sys.version_info < (3, 9):
+    print('ERROR: pyTivo requires Python 3.9 or newer\n')
     sys.exit(1)
-
-try:
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context
-except:
-    pass
 
 import beacon
 import config
@@ -26,13 +20,11 @@ def exceptionLogger(*args):
 
 def last_date():
     lasttime = -1
-	
+
     if getattr(sys, 'frozen', False):
         lasttime = os.path.getmtime(sys.executable)
     else:
-        path = os.path.dirname(__file__)
-        if not path:
-            path = '.'
+        path = os.path.dirname(os.path.abspath(__file__))
         for root, dirs, files in os.walk(path):
             for name in files:
                 if name.endswith('.py'):
@@ -82,7 +74,8 @@ def mainloop():
     httpd = setup()
     serve(httpd)
     httpd.beacon.stop()
-    return httpd.restart 
+    httpd.server_close()
+    return httpd.restart
 
 if __name__ == '__main__':
     while mainloop():

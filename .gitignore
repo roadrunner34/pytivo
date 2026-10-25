@@ -1,11 +1,16 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.cache
-*.egg-info
-*.eggs 
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
 
-cheetah/__pycache__
-*.pyc
+# PyInstaller output
+build/
+dist/
 
+# Local configuration (written by the Settings page; holds your MAK)
+pyTivo.conf
+log.txt

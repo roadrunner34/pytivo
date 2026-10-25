@@ -1,22 +1,17 @@
 # -*- mode: python -*-
 
-block_cipher = None
-
+from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(['../UserInterface/pyTivoTray.py'],
-             pathex=['../UserInterface/'],
+             pathex=['../UserInterface/', '../'],
              binaries=[],
              datas=[('../UserInterface/res/*.png', 'res/')],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
-             excludes=[],
-             win_no_prefer_redirects=False,
-             win_private_assemblies=False,
-             cipher=block_cipher)
-             
-pyz = PYZ(a.pure, a.zipped_data,
-             cipher=block_cipher)
+             excludes=[],)
+
+pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
           a.binaries,
@@ -27,10 +22,10 @@ exe = EXE(pyz,
           strip=False,
           upx=True,
           console=False,
-		  icon='../UserInterface/res/icon.ico' )
+          icon='../UserInterface/res/icon.ico' )
 
 app = BUNDLE(exe,
-		  name='pyTivoTray.app',
-		  icon='../UserInterface/res/icon.icns',
-		  bundle_identifier='com.pytivo.pytivotray',
+          name='pyTivoTray.app',
+          icon='../UserInterface/res/icon.icns',
+          bundle_identifier='com.pytivo.pytivotray',
           info_plist={'LSUIElement': '1'})

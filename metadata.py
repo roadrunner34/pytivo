@@ -3,18 +3,16 @@
 import hashlib
 import logging
 import os
+import plistlib
 import struct
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from xml.dom import minidom
 from xml.parsers import expat
-try:
-    import plistlib
-except:
-    pass
 
 import mutagen
+import mutagen.mp4
 from lrucache import LRUCache
 
 import config
@@ -50,7 +48,8 @@ HUMAN = {'mpaaRating': {1: 'G', 2: 'PG', 3: 'PG-13', 4: 'R', 5: 'X',
                         3: 'COLORIZED', 4: 'COLOR'}
          }
 
-BOM = '\xef\xbb\xbf'
+# iTunes 'stik' media kind for TV shows
+MEDIA_KIND_TV_SHOW = 10
 
 GB = 1024 ** 3
 MB = 1024 ** 2
@@ -62,6 +61,36 @@ dvrms_cache = LRUCache(50)
 nfo_cache = LRUCache(50)
 
 mswindows = (sys.platform == "win32")
+
+logger = logging.getLogger('pyTivo.metadata')
+
+def utc_datetime(timestamp=None):
+    """Naive UTC datetime for a POSIX timestamp (or now), matching the
+    ISO format (no UTC offset) that TiVos expect."""
+    if timestamp is None:
+        dt = datetime.now(timezone.utc)
+    else:
+        dt = datetime.fromtimestamp(timestamp, timezone.utc)
+    return dt.replace(tzinfo=None)
+
+def read_text_lines(path):
+    """Read a text file as lines, accepting UTF-8 (with or without a BOM)
+    or the platform's legacy 8-bit encoding."""
+    with open(path, 'rb') as f:
+        data = f.read()
+    try:
+        text = data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        if sys.platform == 'darwin':
+            text = data.decode('mac_roman')
+        else:
+            text = data.decode('cp1252', 'replace')
+    return text.splitlines()
+
+def _mp4_text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace')
+    return value
 
 def get_mpaa(rating):
     return HUMAN['mpaaRating'].get(rating, 'NR')
@@ -133,9 +162,11 @@ def from_moov(full_path):
     len_desc = 0
 
     try:
-        mp4meta = mutagen.File(unicode(full_path, 'utf-8'))
-        assert(mp4meta)
-    except:
+        mp4meta = mutagen.File(full_path)
+    except Exception as msg:
+        logger.debug('mutagen failed on %s: %s', full_path, msg)
+        mp4meta = None
+    if not mp4meta or mp4meta.tags is None:
         mp4_cache[full_path] = {}
         return {}
 
@@ -145,12 +176,16 @@ def from_moov(full_path):
             'tvsh': 'seriesTitle'}
     isTVShow = False
     if 'stik' in mp4meta:
-        isTVShow = (mp4meta['stik'] == mutagen.mp4.MediaKind.TV_SHOW)
+        isTVShow = (list(mp4meta['stik']) == [MEDIA_KIND_TV_SHOW])
     else:
         isTVShow = 'tvsh' in mp4meta
     for key, value in mp4meta.items():
         if type(value) == list:
             value = value[0]
+        if (key.startswith('----:') and
+            key not in ('----:com.apple.iTunes:iTunMOVI',
+                        '----:com.pyTivo.pyTivo:tiVoINFO')):
+            value = _mp4_text(value)
         if key in keys:
             metadata[keys[key]] = value
         elif key == 'tven':
@@ -160,10 +195,10 @@ def from_moov(full_path):
             elif value.startswith('MV') or value.startswith('EP'):
                 metadata['isEpisode'] = 'true'
                 metadata['programId'] = value
-            elif key.startswith('S') and key.count('E') == 1:
-                epstart = key.find('E')
-                seasonstr = key[1:epstart]
-                episodestr = key[epstart+1:]
+            elif value.startswith('S') and value.count('E') == 1:
+                epstart = value.find('E')
+                seasonstr = value[1:epstart]
+                episodestr = value[epstart+1:]
                 if (seasonstr.isdigit() and episodestr.isdigit()):
                     if len(episodestr) < 2:
                         episodestr = '0' + episodestr
@@ -191,6 +226,7 @@ def from_moov(full_path):
                     metadata['movieYear'] = value[:4]
             #metadata['time'] = value
         elif key in ['\xa9gen', 'gnre']:
+            value = str(value)
             for k in ('vProgramGenre', 'vSeriesGenre'):
                 if k in metadata:
                     metadata[k].append(value)
@@ -218,23 +254,21 @@ def from_moov(full_path):
 
         # Actors, directors, producers, AND screenwriters may be in a long
         # embedded XML plist.
-        elif (key == '----:com.apple.iTunes:iTunMOVI' and
-              'plistlib' in sys.modules):
+        elif key == '----:com.apple.iTunes:iTunMOVI':
             items = {'cast': 'vActor', 'directors': 'vDirector',
                      'producers': 'vProducer', 'screenwriters': 'vWriter'}
             try:
-                data = plistlib.readPlistFromString(value)
-            except:
+                data = plistlib.loads(bytes(value))
+            except Exception:
                 pass
             else:
                 for item in items:
                     if item in data:
                         metadata[items[item]] = [x['name'] for x in data[item]]
-        elif (key == '----:com.pyTivo.pyTivo:tiVoINFO' and
-              'plistlib' in sys.modules):
+        elif key == '----:com.pyTivo.pyTivo:tiVoINFO':
             try:
-                data = plistlib.readPlistFromString(value)
-            except:
+                data = plistlib.loads(bytes(value))
+            except Exception:
                 pass
             else:
                 for item in data:
@@ -259,11 +293,11 @@ def from_mscore(rawmeta):
             try:
                 if tag in rawmeta:
                     value = rawmeta[tag][0]
-                    if type(value) not in (str, unicode):
+                    if not isinstance(value, str):
                         value = str(value)
                     if value:
                         metadata[tagname] = value
-            except:
+            except Exception:
                 pass
 
     if 'episodeTitle' in metadata and 'title' in metadata:
@@ -292,9 +326,11 @@ def from_dvrms(full_path):
         return dvrms_cache[full_path]
 
     try:
-        rawmeta = mutagen.File(unicode(full_path, 'utf-8'))
-        assert(rawmeta)
-    except:
+        rawmeta = mutagen.File(full_path)
+    except Exception as msg:
+        logger.debug('mutagen failed on %s: %s', full_path, msg)
+        rawmeta = None
+    if not rawmeta:
         dvrms_cache[full_path] = {}
         return {}
 
@@ -307,12 +343,13 @@ def from_eyetv(full_path):
             'DESCRIPTION': 'description', 'YEAR': 'movieYear',
             'EPISODENUM': 'episodeNumber'}
     metadata = {}
-    path = os.path.dirname(unicode(full_path, 'utf-8'))
-    eyetvp = [x for x in os.listdir(path) if x.endswith('.eyetvp')][0]
-    eyetvp = os.path.join(path, eyetvp)
+    path = os.path.dirname(full_path)
     try:
-        eyetv = plistlib.readPlist(eyetvp)
-    except:
+        eyetvp = [x for x in os.listdir(path) if x.endswith('.eyetvp')][0]
+        eyetvp = os.path.join(path, eyetvp)
+        with open(eyetvp, 'rb') as f:
+            eyetv = plistlib.load(f)
+    except Exception:
         return metadata
     if 'epg info' in eyetv:
         info = eyetv['epg info']
@@ -341,7 +378,6 @@ def from_eyetv(full_path):
 
 def from_text(full_path):
     metadata = {}
-    full_path = unicode(full_path, 'utf-8')
     path, name = os.path.split(full_path)
     title, ext = os.path.splitext(name)
 
@@ -365,10 +401,12 @@ def from_text(full_path):
     for metafile in search_paths:
         if os.path.exists(metafile):
             sep = ':='[metafile.endswith('.properties')]
-            for line in file(metafile, 'U'):
-                if line.startswith(BOM):
-                    line = line[3:]
-                if line.strip().startswith('#') or not sep in line:
+            try:
+                lines = read_text_lines(metafile)
+            except OSError:
+                continue
+            for line in lines:
+                if line.strip().startswith('#') or sep not in line:
                     continue
                 key, value = [x.strip() for x in line.split(sep, 1)]
                 if not key or not value:
@@ -391,7 +429,7 @@ def from_text(full_path):
             try:
                 x = int(x)
                 metadata[rating] = x
-            except:
+            except ValueError:
                 pass
 
     return metadata
@@ -400,11 +438,11 @@ def basic(full_path, mtime=None):
     base_path, name = os.path.split(full_path)
     title, ext = os.path.splitext(name)
     if not mtime:
-        mtime = os.path.getmtime(unicode(full_path, 'utf-8'))
+        mtime = os.path.getmtime(full_path)
     try:
-        originalAirDate = datetime.utcfromtimestamp(mtime)
-    except:
-        originalAirDate = datetime.utcnow()
+        originalAirDate = utc_datetime(mtime)
+    except (OverflowError, OSError, ValueError):
+        originalAirDate = utc_datetime()
 
     metadata = {'title': title,
                 'originalAirDate': originalAirDate.isoformat()}
@@ -413,7 +451,7 @@ def basic(full_path, mtime=None):
         metadata.update(from_moov(full_path))
     elif ext in ['.dvr-ms', '.asf', '.wmv']:
         metadata.update(from_dvrms(full_path))
-    elif 'plistlib' in sys.modules and base_path.endswith('.eyetv'):
+    elif base_path.endswith('.eyetv'):
         metadata.update(from_eyetv(full_path))
     metadata.update(from_nfo(full_path))
     metadata.update(from_text(full_path))
@@ -529,11 +567,14 @@ def _parse_nfo(nfo_path, nfo_data=None):
     # pyTivo only parses the XML metadata, but we'll try to stip the URL
     # from mixed XML/URL files.  Returns `None` when XML can't be parsed.
     if nfo_data is None:
-        nfo_data = [line.strip() for line in file(nfo_path, 'rU')]
+        try:
+            nfo_data = [line.strip() for line in read_text_lines(nfo_path)]
+        except OSError:
+            return None
     xmldoc = None
     try:
-        xmldoc = minidom.parseString(os.linesep.join(nfo_data))
-    except expat.ExpatError, err:
+        xmldoc = minidom.parseString('\n'.join(nfo_data).encode('utf-8'))
+    except expat.ExpatError as err:
         if expat.ErrorString(err.code) == expat.errors.XML_ERROR_INVALID_TOKEN:
             # might be a URL outside the xml
             while len(nfo_data) > err.lineno:
@@ -654,7 +695,10 @@ def _from_movie_nfo(xmldoc):
         if data:
             metadata[item] = data
 
-    metadata['movieYear'] = "%04d" % int(metadata.get('movieYear', 0))
+    try:
+        metadata['movieYear'] = "%04d" % int(metadata.get('movieYear', 0))
+    except ValueError:
+        del metadata['movieYear']
 
     metadata = _nfo_vitems(movie, metadata)
     return metadata
@@ -683,8 +727,11 @@ def from_nfo(full_path):
     # common nfo cleanup
     if 'starRating' in metadata:
         # .NFO 0-10 -> TiVo 1-7
-        rating = int(float(metadata['starRating']) * 6 / 10 + 1.5)
-        metadata['starRating'] = rating
+        try:
+            rating = int(float(metadata['starRating']) * 6 / 10 + 1.5)
+            metadata['starRating'] = rating
+        except ValueError:
+            del metadata['starRating']
 
     for key, mapping in [('mpaaRating', MPAA_RATINGS),
                          ('tvRating', TV_RATINGS)]:
@@ -699,24 +746,19 @@ def from_nfo(full_path):
     return metadata
 
 def _tdcat_bin(tdcat_path, full_path, tivo_mak):
-    fname = unicode(full_path, 'utf-8')
-    if mswindows:
-        fname = fname.encode('cp1252')
-    tcmd = [tdcat_path, '-m', tivo_mak, '-2', fname]
-    tdcat = subprocess.Popen(tcmd, stdout=subprocess.PIPE)
-    return tdcat.stdout.read()
+    tcmd = [tdcat_path, '-m', tivo_mak, '-2', full_path]
+    return subprocess.run(tcmd, stdout=subprocess.PIPE, check=False).stdout
 
 def _tdcat_py(full_path, tivo_mak):
     xml_data = {}
 
-    tfile = open(full_path, 'rb')
-    header = tfile.read(16)
-    offset, chunks = struct.unpack('>LH', header[10:])
-    rawdata = tfile.read(offset - 16)
-    tfile.close()
+    with open(full_path, 'rb') as tfile:
+        header = tfile.read(16)
+        offset, chunks = struct.unpack('>LH', header[10:])
+        rawdata = tfile.read(offset - 16)
 
     count = 0
-    for i in xrange(chunks):
+    for i in range(chunks):
         chunk_size, data_size, id, enc = struct.unpack('>LLHH',
             rawdata[count:count + 12])
         count += 12
@@ -729,8 +771,9 @@ def _tdcat_py(full_path, tivo_mak):
     if chunk['enc']:
         xml_key = xml_data[3]['data']
 
-        hexmak = hashlib.md5('tivo:TiVo DVR:' + tivo_mak).hexdigest()
-        key = hashlib.sha1(hexmak + xml_key).digest()[:16] + '\0\0\0\0'
+        hexmak = hashlib.md5(('tivo:TiVo DVR:' + tivo_mak).encode('utf-8'))
+        hexmak = hexmak.hexdigest().encode('ascii')
+        key = hashlib.sha1(hexmak + xml_key).digest()[:16] + b'\0\0\0\0'
 
         turkey = hashlib.sha1(key[:17]).digest()
         turiv = hashlib.sha1(key).digest()
@@ -745,48 +788,40 @@ def from_tivo(full_path):
 
     tdcat_path = config.get_bin('tdcat')
     tivo_mak = config.get_server('tivo_mak')
+    if not tivo_mak:
+        return {}
     try:
-        assert(tivo_mak)
         if tdcat_path:
             details = _tdcat_bin(tdcat_path, full_path, tivo_mak)
         else:
             details = _tdcat_py(full_path, tivo_mak)
         metadata = from_details(details)
         tivo_cache[full_path] = metadata
-    except:
+    except Exception as msg:
+        logger.debug('Unable to read TiVo metadata from %s: %s',
+                     full_path, msg)
         metadata = {}
 
     return metadata
-
-def force_utf8(text):
-    if type(text) == str:
-        try:
-            text = text.decode('utf8')
-        except:
-            if sys.platform == 'darwin':
-                text = text.decode('macroman')
-            else:
-                text = text.decode('cp1252')
-    return text.encode('utf-8')
 
 def dump(output, metadata):
     for key in metadata:
         value = metadata[key]
         if type(value) == list:
             for item in value:
-                output.write('%s: %s\n' % (key, item.encode('utf-8')))
+                output.write('%s: %s\n' % (key, item))
         else:
             if key in HUMAN and value in HUMAN[key]:
                 output.write('%s: %s\n' % (key, HUMAN[key][value]))
             else:
-                output.write('%s: %s\n' % (key, value.encode('utf-8')))
+                output.write('%s: %s\n' % (key, value))
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         metadata = {}
         config.init([])
         logging.basicConfig()
-        fname = force_utf8(sys.argv[1])
+        fname = sys.argv[1]
         ext = os.path.splitext(fname)[1].lower()
         if ext == '.tivo':
             metadata.update(from_tivo(fname))
