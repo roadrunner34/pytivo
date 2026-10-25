@@ -13,15 +13,17 @@ version.
 ## Requirements
 
 - Python 3.9 or newer
-- [FFmpeg](https://ffmpeg.org/) for transcoding (a Windows build is
-  included in `bin/`)
+- [FFmpeg](https://ffmpeg.org/) for transcoding. On Windows, fetch the
+  current release into `bin/` with `python bin/get_ffmpeg.py` (it's too
+  large to keep in git). Elsewhere, install it with your package manager;
+  pyTivo also finds ffmpeg on the `PATH`.
 - Python packages:
 
   ```sh
   python -m pip install -r requirements.txt
   ```
 
-  The core requirements are Cheetah3, mutagen and zeroconf. Pillow (photo
+  The core requirements are Jinja2, mutagen and zeroconf. Pillow (photo
   scaling), psutil (Settings page drive list) and, on Windows, pywin32 and
   comtypes (service, tray app and VideoReDo) are optional.
 

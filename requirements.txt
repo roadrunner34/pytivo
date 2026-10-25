@@ -1,7 +1,5 @@
 # Core runtime dependencies
-Cheetah3>=3.2.6
-# Cheetah3 still imports the cgi module, which Python 3.13 removed
-legacy-cgi>=2.6; python_version >= "3.13"
+Jinja2>=3.0
 mutagen>=1.45
 zeroconf>=0.131
 

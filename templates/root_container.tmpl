@@ -1,33 +1,33 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <TiVoContainer>
     <Details>
-        <Title>$hostname</Title>
+        <Title>{{ hostname }}</Title>
         <ContentType>x-container/tivo-server</ContentType>
         <SourceFormat>x-container/folder</SourceFormat>
-        <TotalItems>#echo len($containers) #</TotalItems>
+        <TotalItems>{{ containers|length }}</TotalItems>
     </Details>
 
-    #for $name, $details in $containers
-      #if $name in $renamed
-        #set $title = $renamed[name]
-      #else
-        #set $title = $name
-      #end if
+    {% for name, details in containers %}
+      {% if name in renamed %}
+        {% set title = renamed[name] %}
+      {% else %}
+        {% set title = name %}
+      {% endif %}
     <Item>
         <Details>
-            <Title>$escape($title)</Title>
-            <ContentType>$escape($details.content_type)</ContentType>
+            <Title>{{ escape(title) }}</Title>
+            <ContentType>{{ escape(details.content_type) }}</ContentType>
             <SourceFormat>x-container/folder</SourceFormat>
         </Details>
         <Links>
             <Content>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($name)</Url>
-                <ContentType>$escape($details.content_type)</ContentType>
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(name) }}</Url>
+                <ContentType>{{ escape(details.content_type) }}</ContentType>
             </Content>
         </Links>
     </Item>
-    #end for
+    {% endfor %}
 
     <ItemStart>0</ItemStart>
-    <ItemCount>#echo len($containers) #</ItemCount>
+    <ItemCount>{{ containers|length }}</ItemCount>
 </TiVoContainer>

@@ -33,6 +33,12 @@ def server(tmp_path_factory):
         (videos / 'Clip Été.mp4.txt').write_text(
             'title : Clip Title\nepisodeTitle : Épisode\n', encoding='utf-8')
 
+    (music / 'Mix.m3u').write_text(
+        '#EXTINF:61,Local\nTone.wav\n'
+        '#EXTINF:-1,Simon & Garfunkel <Live>\n'
+        'http://radio.example/stream?a=1&b=2\n',
+        encoding='utf-8')
+
     from PIL import Image
     Image.new('RGB', (640, 480), (200, 30, 30)).save(str(photos / 'Red.png'))
 
@@ -190,6 +196,24 @@ def test_music_container_and_transcode(server):
     response, data = request(server, '/Music/Tone.wav')
     assert response.status == 206
     assert data[:3] == b'ID3' or data[0] == 0xff     # an MP3 stream
+
+
+def test_playlist_titles_and_urls_are_escaped(server):
+    response, data = command(server, Command='QueryContainer',
+                             Container='Music/Mix.m3u')
+    assert response.status == 200
+    doc = parse(data)                       # used to be invalid XML
+    assert 'Simon & Garfunkel <Live>' in texts(doc, 'Title')
+    assert 'http://radio.example/stream?a=1&b=2' in texts(doc, 'Url')
+
+
+def test_missing_folder_is_404(server):
+    # A TiVo can ask for a folder that has since been deleted; that used
+    # to drop the connection without any response.
+    for container in ('Videos/Gone', 'Music/Gone', 'Photos/Gone'):
+        response, _ = command(server, Command='QueryContainer',
+                              Container=container)
+        assert response.status == 404
 
 
 def test_photo_container_and_scaling(server):

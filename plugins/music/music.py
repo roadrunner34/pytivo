@@ -12,11 +12,11 @@ from xml.sax.saxutils import escape
 import mutagen
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
-from Cheetah.Template import Template
 from lrucache import LRUCache
 import config
-from plugin import (EncodeUnicode, Plugin, quote, unquote, list_files,
-                    move_to_front, shuffle)
+from plugin import (Plugin, quote, unquote, list_files, move_to_front,
+                    shuffle)
+from templating import render
 from plugins.video.transcode import kill
 
 logger = logging.getLogger('pyTivo.music')
@@ -53,11 +53,8 @@ plslength = re.compile(r'[Ll]ength(\d+)=(\d+)').match
 # Duration -- parse from ffmpeg output
 durre = re.compile(r'.*Duration: ([0-9]+):([0-9]+):([0-9]+)\.([0-9]+),').search
 
-# Preload the templates
 def tmpl(name):
-    with open(os.path.join(SCRIPTDIR, 'templates', name),
-              encoding='utf-8') as f:
-        return f.read()
+    return os.path.join(SCRIPTDIR, 'templates', name)
 
 FOLDER_TEMPLATE = tmpl('container.tmpl')
 PLAYLIST_TEMPLATE = tmpl('m3u.tmpl')
@@ -272,34 +269,32 @@ class Music(Plugin):
         subcname = query['Container'][0]
         local_base_path = self.get_local_base_path(handler, query)
 
-        if not self.get_local_path(handler, query):
+        if ('http://' not in subcname and
+            not self.get_local_path(handler, query, must_exist=True)):
             handler.send_error(404)
             return
 
         if os.path.splitext(subcname)[1].lower() in PLAYLISTS:
-            t = Template(PLAYLIST_TEMPLATE, filter=EncodeUnicode)
-            t.files, t.total, t.start = self.get_playlist(handler, query)
+            template = PLAYLIST_TEMPLATE
+            files, total, start = self.get_playlist(handler, query)
         else:
-            t = Template(FOLDER_TEMPLATE, filter=EncodeUnicode)
-            t.files, t.total, t.start = self.get_files(handler, query,
-                                                       AudioFileFilter)
-        t.files = [media_data(f) for f in t.files]
-        t.container = handler.cname
-        t.name = subcname
-        t.quote = quote
-        t.escape = escape
+            template = FOLDER_TEMPLATE
+            files, total, start = self.get_files(handler, query,
+                                                 AudioFileFilter)
 
-        handler.send_xml(str(t))
+        handler.send_xml(render(
+            template, files=[media_data(f) for f in files], total=total,
+            start=start, container=handler.cname, name=subcname,
+            quote=quote, escape=escape))
 
     def QueryItem(self, handler, query):
         splitpath = [x for x in unquote_plus(query['Url'][0]).split('/') if x]
         path = os.path.join(handler.container['path'], *splitpath[1:])
 
         if path in self.media_data_cache:
-            t = Template(ITEM_TEMPLATE, filter=EncodeUnicode)
-            t.file = self.media_data_cache[path]
-            t.escape = escape
-            handler.send_xml(str(t))
+            handler.send_xml(render(ITEM_TEMPLATE,
+                                    file=self.media_data_cache[path],
+                                    escape=escape))
         else:
             handler.send_error(404)
 

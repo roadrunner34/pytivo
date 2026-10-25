@@ -9,152 +9,150 @@
 <form action="/TiVoConnect" method="POST">
 <p id="titlep"><span id="title">
 <a href="/">pyTivo</a> /
-  #if $folder != ''
-<a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP">
-  #end if
-Pull from $tname
-  #if $folder != ''
+  {% if folder != '' %}
+<a href="/TiVoConnect?Command=NPL&amp;Container={{ quote(container) }}&amp;TiVo={{ tivoIP }}">
+  {% endif %}
+Pull from {{ tname|e }}
+  {% if folder != '' %}
 </a> /
-    #if '/' in $title
-      #set $folders = $title.split('/')[1:]
-      #for $f in $folders[:-1]
-        $f /
-      #end for
-      $folders[-1]
-    #else
-      $title
-    #end if
-  #end if
+    {% if '/' in title %}
+      {% set folders = title.split('/')[1:] %}
+      {% for f in folders[:-1] %}
+        {{ f|e }} /
+      {% endfor %}
+      {{ folders[-1]|e }}
+    {% else %}
+      {{ title|e }}
+    {% endif %}
+  {% endif %}
 </span></p>
 <table id="main">
-  #if $ItemStart > 0
+  {% if ItemStart > 0 %}
 	<tr><td colspan="5">
-	#set $Offset = -($ItemStart + 1)
-	#if $Offset < -($shows_per_page+1)
-           #set $Offset = -($shows_per_page+1)
-	#end if
-	<a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP&amp;AnchorItem=$FirstAnchor&amp;AnchorOffset=$Offset&amp;Folder=$quote($folder)">Previous Page</a>
+	{% set Offset = -(ItemStart + 1) %}
+	{% if Offset < -(shows_per_page+1) %}
+           {% set Offset = -(shows_per_page+1) %}
+	{% endif %}
+	<a href="/TiVoConnect?Command=NPL&amp;Container={{ quote(container) }}&amp;TiVo={{ tivoIP }}&amp;AnchorItem={{ FirstAnchor }}&amp;AnchorOffset={{ Offset }}&amp;Folder={{ quote(folder) }}">Previous Page</a>
 	</td></tr>
-  #end if
-  #set $i = 0
-  ## i variable is used to alternate colors of row
-  ## loop through passed data printing row for each show or folder
-  #for $row in $data
-	  #set $i += 1
-	  #set $j = $i%2
-	  <tr class="row$(j)">
-	  #if $row['ContentType'].startswith('x-tivo-container')
-	    ## This is a folder
+  {% endif %}
+  {# i variable is used to alternate colors of row #}
+  {# loop through passed data printing row for each show or folder #}
+  {% for row in data %}
+	  {% set j = loop.index % 2 %}
+	  <tr class="row{{ j }}">
+	  {% if row['ContentType'].startswith('x-tivo-container') %}
+	    {# This is a folder #}
 		<td></td>
 		<td><img src="/folder.png" alt=""></td>
-		<td class="progmain"><a href='/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;Folder=$quote(row["Url"])&amp;TiVo=$tivoIP'>$row['Title'] </a></td>
-		<td class="progsize">$row["TotalItems"] Items</td>
-		<td class="progdate">$row["LastChangeDate"]</td>
-	  #else
-	    ## This is a show
+		<td class="progmain"><a href='/TiVoConnect?Command=NPL&amp;Container={{ quote(container) }}&amp;Folder={{ quote(row["Url"]) }}&amp;TiVo={{ tivoIP }}'>{{ row['Title']|e }} </a></td>
+		<td class="progsize">{{ row["TotalItems"] }} Items</td>
+		<td class="progdate">{{ row["LastChangeDate"] }}</td>
+	  {% else %}
+	    {# This is a show #}
 		<td>
-		#if 'Url' in $row and not ($row['Url'] in $status and ($status[$row['Url']]['running'] or $status[$row['Url']]['queued'])) and not ('CopyProtected' in $row and $row['CopyProtected'] == 'Yes') and not ('Icon' in $row and $row['Icon'] == 'urn:tivo:image:in-progress-recording')
-			<input type="checkbox" name="Url" value="$row['Url']">
-		#end if
+		{% if 'Url' in row and not (row['Url'] in status and (status[row['Url']]['running'] or status[row['Url']]['queued'])) and not ('CopyProtected' in row and row['CopyProtected'] == 'Yes') and not ('Icon' in row and row['Icon'] == 'urn:tivo:image:in-progress-recording') %}
+			<input type="checkbox" name="Url" value="{{ row['Url']|e }}">
+		{% endif %}
 		</td>
 		<td>
-		#if 'CopyProtected' in $row and $row['CopyProtected'] == 'Yes'
+		{% if 'CopyProtected' in row and row['CopyProtected'] == 'Yes' %}
 			<img src="/nocopy.png" alt="">
-		#elif 'Icon' in $row
+		{% elif 'Icon' in row %}
 		    <!-- Display icons similar to TiVo colored circles -->
-			#if $row['Icon'] == 'urn:tivo:image:expires-soon-recording'
+			{% if row['Icon'] == 'urn:tivo:image:expires-soon-recording' %}
 				<img src="/soon.png" alt="">
-			#else if $row['Icon'] == 'urn:tivo:image:expired-recording'
+			{% elif row['Icon'] == 'urn:tivo:image:expired-recording' %}
 				<img src="/expired.png" alt="">
-			#else if $row['Icon'] == 'urn:tivo:image:save-until-i-delete-recording'
+			{% elif row['Icon'] == 'urn:tivo:image:save-until-i-delete-recording' %}
 				<img src="/kuid.png" alt="">
-			#else if $row['Icon'] == 'urn:tivo:image:in-progress-recording'
+			{% elif row['Icon'] == 'urn:tivo:image:in-progress-recording' %}
 				<img src="/recording.png" alt="">
-			#end if
-		#end if
+			{% endif %}
+		{% endif %}
 		</td>
 		<td class="progmain">
-			#if 'episodeTitle' in $row
-			<span class="progtitle">$row['title']: $row['episodeTitle']</span>
-			#else
-			<span class="progtitle">$row['title']</span>
-			#end if
-			<span class="progdesc">#if 'description' in $row
-			$row['description']
-			#end if
-			#if 'displayMajorNumber' in $row and 'callsign' in $row
-			$row['displayMajorNumber'] $row['callsign']
-			#end if
+			{% if 'episodeTitle' in row %}
+			<span class="progtitle">{{ row['title']|e }}: {{ row['episodeTitle']|e }}</span>
+			{% else %}
+			<span class="progtitle">{{ row['title']|e }}</span>
+			{% endif %}
+			<span class="progdesc">{% if 'description' in row +%}
+			{{ row['description']|e }}
+			{% endif %}
+			{% if 'displayMajorNumber' in row and 'callsign' in row %}
+			{{ row['displayMajorNumber']|e }} {{ row['callsign']|e }}
+			{% endif %}
 			</span>
-			#if 'Url' in $row and row['Url'] in $status
-				#set $this_status = $status[$row['Url']]
-				#if $this_status['running'] and $this_status['rate'] != 0
+			{% if 'Url' in row and row['Url'] in status %}
+				{% set this_status = status[row['Url']] %}
+				{% if this_status['running'] and this_status['rate'] != 0 %}
 					<div class="transferring">
-					#set $gb = '%.3f GB' % (float($this_status['size']) / (1024 ** 3))
-					#set $mbps = '%.2f Mb/s' % ($this_status['rate'] / (1024*1024))
-					Transfering - $mbps<br>$gb
-					<a href="/TiVoConnect?Command=ToGoStop&amp;Container=$quote($container)&amp;Url=$quote($row['Url'])">Stop Transfer</a>
+					{% set gb = '%.3f GB' % (this_status['size']|float / (1024 ** 3)) %}
+					{% set mbps = '%.2f Mb/s' % (this_status['rate'] / (1024*1024)) %}
+					Transfering - {{ mbps }}<br>{{ gb }}
+					<a href="/TiVoConnect?Command=ToGoStop&amp;Container={{ quote(container) }}&amp;Url={{ quote(row['Url']) }}">Stop Transfer</a>
 					</div>
-				#elif $this_status['running'] and $this_status['rate'] == 0
+				{% elif this_status['running'] and this_status['rate'] == 0 %}
 					<div class="transferring">
 					Initiating Transfer<br>
 					Please Wait
 					</div>
-				#elif $this_status['error']
+				{% elif this_status['error'] %}
 					<div class="failed">
-					Error - $this_status['error']<br>
+					Error - {{ this_status['error']|e }}<br>
 					</div>
-				#elif $this_status['finished']
+				{% elif this_status['finished'] %}
 					<div>
 					Transfer Complete
 					</div>
-				#elif $this_status['queued']
+				{% elif this_status['queued'] %}
 					<div class="queued">
-					Queued: $queue.index($row['Url'])<br>
-					<a href="/TiVoConnect?Command=Unqueue&amp;Container=$quote($container)&amp;Url=$quote($row['Url'])&amp;TiVo=$tivoIP">Unqueue</a>
+					Queued: {{ queue.index(row['Url']) }}<br>
+					<a href="/TiVoConnect?Command=Unqueue&amp;Container={{ quote(container) }}&amp;Url={{ quote(row['Url']) }}&amp;TiVo={{ tivoIP }}">Unqueue</a>
 					</div>
-				#end if
-			#end if
+				{% endif %}
+			{% endif %}
 		</td>
 		<td class="progsize">
-                #if 'SourceSize' in $row
-                $row['SourceSize']
-                #end if
+                {% if 'SourceSize' in row %}
+                {{ row['SourceSize'] }}
+                {% endif %}
                 <br>
-                #if 'Duration' in $row
-		$row['Duration']
-                #end if
+                {% if 'Duration' in row %}
+		{{ row['Duration'] }}
+                {% endif %}
 		</td>
 		<td class="progdate">
-                #if 'CaptureDate' in $row
-                $row['CaptureDate']
-                #end if
+                {% if 'CaptureDate' in row %}
+                {{ row['CaptureDate'] }}
+                {% endif %}
                 </td>
-	  #end if
+	  {% endif %}
 	  </tr>
-  #end for
-  #if ($TotalItems - $ItemCount) > ($ItemStart + 1)
+  {% endfor %}
+  {% if (TotalItems - ItemCount) > (ItemStart + 1) %}
      <tr><td colspan="5">
-     #set $Offset = $shows_per_page - 1
-     <a href="/TiVoConnect?Command=NPL&amp;Container=$quote($container)&amp;TiVo=$tivoIP&amp;AnchorItem=$FirstAnchor&amp;AnchorOffset=$Offset&amp;Folder=$quote($folder)&amp;ItemCount=$shows_per_page">Next Page</a>
+     {% set Offset = shows_per_page - 1 %}
+     <a href="/TiVoConnect?Command=NPL&amp;Container={{ quote(container) }}&amp;TiVo={{ tivoIP }}&amp;AnchorItem={{ FirstAnchor }}&amp;AnchorOffset={{ Offset }}&amp;Folder={{ quote(folder) }}&amp;ItemCount={{ shows_per_page }}">Next Page</a>
      </td></tr>
-  #end if
+  {% endif %}
 </table>
 <p>
  <input type="hidden" name="Command" value="ToGo">
- <input type="hidden" name="Container" value="$container">
- <input type="hidden" name="TiVo" value="$tivoIP">
-#if $has_tivolibre
+ <input type="hidden" name="Container" value="{{ container }}">
+ <input type="hidden" name="TiVo" value="{{ tivoIP }}">
+{% if has_tivolibre %}
  <input type="checkbox" name="decode">Decrypt with tivo-libre<br>
-#else
- #if $has_tivodecode
+{% else %}
+ {% if has_tivodecode %}
   <input type="checkbox" name="decode">Decrypt with tivodecode<br>
- #end if
-#end if
+ {% endif %}
+{% endif %}
  <input type="checkbox" name="save">Save metadata to .txt<br>
-#if $togo_mpegts
+{% if togo_mpegts %}
  <input type="checkbox" name="ts_format">Transfer as mpeg-ts<br>
-#end if
+{% endif %}
 </p>
 <p>
  <input value="Transfer Selected" type="submit">

@@ -8,7 +8,6 @@ import time
 import unicodedata
 from urllib.parse import quote as _quote, unquote_plus
 
-from Cheetah.Filters import Filter
 from lrucache import LRUCache
 
 if os.path.sep == '/':
@@ -19,34 +18,6 @@ else:
     unquote = lambda x: os.path.normpath(unquote_plus(x))
 
 logger = logging.getLogger('pyTivo.plugin')
-
-
-def _quiet_namemapper_hook(unraisable, _default=sys.unraisablehook):
-    # Cheetah3's C NameMapper probes str placeholders such as $value.lower()
-    # with PyMapping_HasKeyString(), which Python 3.13+ reports as an
-    # "Exception ignored" message on stderr even though Cheetah then falls
-    # back to attribute lookup correctly. Drop only that benign case.
-    if (isinstance(unraisable.exc_value, TypeError) and
-            'PyMapping_HasKeyString' in str(unraisable.err_msg or '')):
-        return
-    _default(unraisable)
-
-
-if sys.version_info >= (3, 13):
-    sys.unraisablehook = _quiet_namemapper_hook
-
-
-def to_text(value):
-    """Return value as str, decoding bytes the way pyTivo always has:
-    UTF-8 first, then the platform's legacy 8-bit code page."""
-    if isinstance(value, bytes):
-        try:
-            return value.decode('utf-8')
-        except UnicodeDecodeError:
-            if sys.platform == 'darwin':
-                return value.decode('mac_roman')
-            return value.decode('cp1252', 'replace')
-    return value
 
 
 class Error:
@@ -61,19 +32,6 @@ def GetPlugin(name):
         logger.exception('Error loading the %s plugin. Check the type '
                          'setting for your share.', name)
         return Error
-
-
-class EncodeUnicode(Filter):
-    """Cheetah output filter: render every placeholder as text."""
-
-    def filter(self, val, **kw):
-        if val is None:
-            return ''
-        if isinstance(val, bytes):
-            return to_text(val)
-        if not isinstance(val, str):
-            return str(val)
-        return val
 
 
 class FileData:
@@ -171,8 +129,9 @@ class Plugin:
     def get_local_base_path(self, handler, query):
         return os.path.normpath(handler.container['path'])
 
-    def get_local_path(self, handler, query):
-
+    def get_local_path(self, handler, query, must_exist=False):
+        """Map the requested Container to a local path. Returns False for
+        path tricks, or (with must_exist) for a folder that's gone."""
         subcname = query['Container'][0]
 
         path = self.get_local_base_path(handler, query)
@@ -180,6 +139,8 @@ class Plugin:
             if folder == '..':
                 return False
             path = os.path.join(path, folder)
+        if must_exist and not os.path.exists(path):
+            return False
         return path
 
     def item_count(self, handler, query, cname, files, last_start=0):

@@ -11,12 +11,12 @@ from collections.abc import MutableMapping
 from datetime import datetime, timedelta
 from xml.sax.saxutils import escape
 
-from Cheetah.Template import Template
 from lrucache import LRUCache
 
 import config
 import metadata
-from plugin import EncodeUnicode, Plugin, quote
+from plugin import Plugin, quote
+from templating import render
 from plugins.video import transcode
 
 logger = logging.getLogger('pyTivo.video.video')
@@ -28,11 +28,8 @@ if getattr(sys, 'frozen', False):
 
 CLASS_NAME = 'Video'
 
-# Preload the templates
 def tmpl(name):
-    with open(os.path.join(SCRIPTDIR, 'templates', name),
-              encoding='utf-8') as f:
-        return f.read()
+    return os.path.join(SCRIPTDIR, 'templates', name)
 
 XML_CONTAINER_TEMPLATE = tmpl('container_xml.tmpl')
 TVBUS_TEMPLATE = tmpl('TvBus.tmpl')
@@ -423,7 +420,7 @@ class Video(Plugin):
         tsn = handler.headers.get('tsn', '')
         subcname = query['Container'][0]
 
-        if not self.get_local_path(handler, query):
+        if not self.get_local_path(handler, query, must_exist=True):
             handler.send_error(404)
             return
 
@@ -483,18 +480,11 @@ class Video(Plugin):
 
             videos.append(video)
 
-        t = Template(XML_CONTAINER_TEMPLATE, filter=EncodeUnicode)
-        t.container = handler.cname
-        t.name = subcname
-        t.total = total
-        t.start = start
-        t.videos = videos
-        t.quote = quote
-        t.escape = escape
-        t.crc = crc
-        t.guid = config.getGUID()
-        t.tivos = config.tivos
-        handler.send_xml(str(t))
+        handler.send_xml(render(
+            XML_CONTAINER_TEMPLATE, container=handler.cname, name=subcname,
+            total=total, start=start, videos=videos, quote=quote,
+            escape=escape, crc=crc, guid=config.getGUID(),
+            tivos=config.tivos))
 
     def use_ts(self, tsn, file_path):
         if config.is_ts_capable(tsn):
@@ -524,14 +514,10 @@ class Video(Plugin):
             if file_info['valid']:
                 file_info.update(self.metadata_full(file_path, tsn))
 
-            t = Template(TVBUS_TEMPLATE, filter=EncodeUnicode)
-            t.video = file_info
-            t.escape = escape
-            t.get_tv = metadata.get_tv
-            t.get_mpaa = metadata.get_mpaa
-            t.get_stars = metadata.get_stars
-            t.get_color = metadata.get_color
-            details = str(t)
+            details = render(
+                TVBUS_TEMPLATE, video=file_info, escape=escape,
+                get_tv=metadata.get_tv, get_mpaa=metadata.get_mpaa,
+                get_stars=metadata.get_stars, get_color=metadata.get_color)
             self.tvbus_cache[(tsn, file_path)] = details
         return details
 

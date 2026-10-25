@@ -6,8 +6,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "LGPL-2.1-or-later" }
 dependencies = [
-    "Cheetah3>=3.2.6",
-    "legacy-cgi>=2.6; python_version >= '3.13'",
+    "Jinja2>=3.0",
     "mutagen>=1.45",
     "zeroconf>=0.131",
 ]

@@ -16,8 +16,7 @@ a = Analysis(['../pyTivo.py'],
                 ('../plugins/video/templates/*.*', 'plugins/video/templates'),
                 ('../UserInterface/res/*.png', 'UserInterface/res/'),
                 ('../videoredo/profiles/*.xml', 'videoredo/profiles/'),],
-             hiddenimports=(collect_submodules('Cheetah') +
-                            collect_submodules('zeroconf') + [
+             hiddenimports=(collect_submodules('zeroconf') + [
                  'plugins.desktop.desktop',
                  'plugins.desktop.asar',
                  'plugins.settings.settings',

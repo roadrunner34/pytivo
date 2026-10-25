@@ -9,105 +9,102 @@
 </head>
 <body>
 
-#def row($i, $key, $section, $source)
-    #set $j = $i%2
-    <tr class="row$(j)" onmouseover="switchDiv('help-$key', 'help-');
+{% macro row(i, key, section, source) %}
+    {% set j = i%2 %}
+    <tr class="row{{ j }}" onmouseover="switchDiv('help-{{ key }}', 'help-');
      return true;">
-    <td style="text-align: left">$key:</td>
+    <td style="text-align: left">{{ key|e }}:</td>
     <td style="text-align: left">
-    #if $key in $source
-      #set $value=$source[$key]
-    #else
-      #set $value=''
-    #end if
-    #if $mode.get($key, '') == 'select'
-    <select name="opts.$section.$key" onChange="saveNotify();">
-      #for $p in $options[$key]
-        #if $p.lower() == $value.lower()
-          <option selected>$p</option>
-        #else
-          <option>$p</option>
-        #end if
-      #end for
+    {% if key in source %}
+      {% set value=source[key] %}
+    {% else %}
+      {% set value='' %}
+    {% endif %}
+    {% if mode.get(key, '') == 'select' %}
+    <select name="opts.{{ section }}.{{ key }}" onChange="saveNotify();">
+      {% for p in options[key] %}
+        {% if p.lower() == value.lower() %}
+          <option selected>{{ p|e }}</option>
+        {% else %}
+          <option>{{ p|e }}</option>
+        {% endif %}
+      {% endfor %}
     </select>
-    #elif $mode.get($key, '') == 'checkbox'
-    <input id="opts.$section.$key" name="opts.$section.$key"
+    {% elif mode.get(key, '') == 'checkbox' %}
+    <input id="opts.{{ section }}.{{ key }}" name="opts.{{ section }}.{{ key }}"
      type="checkbox"
-      #if $value.lower() in ["1", "yes", "true", "on"]
+      {% if value.lower() in ["1", "yes", "true", "on"] %}
         checked
-      #end if
+      {% endif %}
      onChange="saveNotify();">
-    #else
-    <input size="20" id="opts.$section.$key" name="opts.$section.$key"
-     onChange="saveNotify();" value="$value" type="text">
-    #end if
+    {% else %}
+    <input size="20" id="opts.{{ section }}.{{ key }}" name="opts.{{ section }}.{{ key }}"
+     onChange="saveNotify();" value="{{ value|e }}" type="text">
+    {% endif %}
     </td>
     </tr>
-#end def
+{% endmacro %}
 
-#def rows($section, $source_data, $source_known)
+{% macro rows(section, source_data, source_known) %}
     <hr style="width: 100%; height: 2px">
     <table style="margin-left: auto; margin-right: auto">
-    #set $i = 0
-    #set $source_select = []
-    #set $source_text = []
-    #set $source_checkbox = []
-    #for $k in $source_known
-        #set $m = $mode.get($k, 'text')
-        #if $m == 'select'
-            #set $source_select += [$k]
-        #elif $m == 'checkbox'
-            #set $source_checkbox += [$k]
-        #else
-            #set $source_text += [$k]
-        #end if
-    #end for
-    #for $l in [$source_select, $source_text, $source_checkbox]
-        #for $key in $l
-            #set $i += 1
-            $row($i, $key, $section, $source_data)
-        #end for
-    #end for
+    {% set ns = namespace(i=0, select=[], text=[], checkbox=[]) %}
+    {% for k in source_known %}
+        {% set m = mode.get(k, 'text') %}
+        {% if m == 'select' %}
+            {% set ns.select = ns.select + [k] %}
+        {% elif m == 'checkbox' %}
+            {% set ns.checkbox = ns.checkbox + [k] %}
+        {% else %}
+            {% set ns.text = ns.text + [k] %}
+        {% endif %}
+    {% endfor %}
+    {% for l in [ns.select, ns.text, ns.checkbox] %}
+        {% for key in l %}
+            {% set ns.i = ns.i + 1 %}
+            {{ row(ns.i, key, section, source_data) }}
+        {% endfor %}
+    {% endfor %}
 
     <tr><td colspan="2" align="center" class="ulined">User Defined 
      Settings:</td></tr>
 
-    #set $i = 0
-    #for $key in $source_data
-        #if not $key in $source_known
-            #set $i += 1
-            $row($i, $key, $section, $source_data)
-        #end if
-    #end for
+    {% set ns.i = 0 %}
+    {% for key in source_data %}
+        {% if not key in source_known %}
+            {% set ns.i = ns.i + 1 %}
+            {{ row(ns.i, key, section, source_data) }}
+        {% endif %}
+    {% endfor %}
     </table>
-#end def
+{% endmacro %}
 
-#def add_setting($name, $section)
+{% macro add_setting(name, section) %}
     <div style="width: 330px; position: relative;">
-    <div class="add-button" id="add-$name-button">
+    <div class="add-button" id="add-{{ name }}-button">
     <br>
     <input type="button" value="Add Setting" 
-     onclick="switchDiv('add-$name-field', 'add-$name-');
+     onclick="switchDiv('add-{{ name }}-field', 'add-{{ name }}-');
      return true;">
     </div>
-    <div class="add-field" id="add-$name-field">
+    <div class="add-field" id="add-{{ name }}-field">
     <table style="width: 315px;">
     <tr>
     <td colspan="2" align="center" class="ulined">Add a Setting</td>
     </tr>
     <tr><td>Setting Name:</td><td>Setting Value:</td></tr>
     <tr>
-    #for $x in ('setting', 'value')
+    {% for x in ('setting', 'value') %}
         <td>
         <input size="16" type="text" onChange="saveNotify();"
-         id="opts.$(section).new_$x" name="opts.$(section).new__$x" value="">
+         id="opts.{{ section }}.new_{{ x }}" name="opts.{{ section }}.new__{{ x }}" value="">
         </td>
-    #end for
+    {% endfor %}
     </tr>
     </table>
     </div>
     </div>
-#end def
+{% endmacro %}
 
 <p id="titlep">
 <span id="title"><a href="/">pyTivo</a> / Settings</span>
@@ -127,12 +124,12 @@
         <option value="set-fk_tivos">4K TiVo Settings</option>
         <option value="set-hd_tivos">HD TiVo Settings</option>
         <option value="set-sd_tivos">SD TiVo Settings</option>
-#for $name, $data in $shares_data
-	<option value="set-$name">$name</option>
-#end for
-#for $name, $data in $tivos_data
-	<option value="set-$name">$name</option>
-#end for
+{% for name, data in shares_data %}
+	<option value="set-{{ name }}">{{ name }}</option>
+{% endfor %}
+{% for name, data in tivos_data %}
+	<option value="set-{{ name }}">{{ name }}</option>
+{% endfor %}
         </select>
 
         <input name="B4" value="Delete Section" type="button" 
@@ -146,15 +143,15 @@
         <p>
         <input name="B1" id="B1" value="Save Changes" 
          type="button" onclick="showData(document.config); return true;">
-        #if $has_shutdown
+        {% if has_shutdown %}
         <input id="B2" name="B2" value="Restart pyTivo" type="button" 
          onclick="redir('Restart');">
         <input id="B3" name="B3" value="Shutdown pyTivo" type="button"
          onclick="redir('Quit');">
-        #else
+        {% else %}
         <input id="B2" name="B2" value="Soft Reset pyTivo" type="button" 
          onclick="redir('Reset');">
-        #end if
+        {% endif %}
         </p>
       </form>
 
@@ -169,61 +166,60 @@
        onsubmit="fillBlank(); showData(this);"><div style="height: 100%">
 
       <input type="hidden" name="Command" value="UpdateSettings">
-      <input type="hidden" name="Container" value="$container">
+      <input type="hidden" name="Container" value="{{ container }}">
 
 <div id="set-server" class="sett-sect">
 	<b>Global Server Settings</b><br>
-        $rows('Server', $server_data, $server_known)
-        $add_setting('server', 'Server')
+        {{ rows('Server', server_data, server_known) }}
+        {{ add_setting('server', 'Server') }}
 </div>
 
 <div id="set-fk_tivos" class="sett-sect">
 	<b>4K TiVo Settings</b><br>
-        $rows('_tivo_4K', $fk_tivos_data, $fk_tivos_known)
-        $add_setting('fk_tivos', '_tivo_4K')
+        {{ rows('_tivo_4K', fk_tivos_data, fk_tivos_known) }}
+        {{ add_setting('fk_tivos', '_tivo_4K') }}
 </div>
 
 <div id="set-hd_tivos" class="sett-sect">
 	<b>HD TiVo Settings</b><br>
-        $rows('_tivo_HD', $hd_tivos_data, $hd_tivos_known)
-        $add_setting('hd_tivos', '_tivo_HD')
+        {{ rows('_tivo_HD', hd_tivos_data, hd_tivos_known) }}
+        {{ add_setting('hd_tivos', '_tivo_HD') }}
 </div>
 
 <div id="set-sd_tivos" class="sett-sect">
 	<b>SD TiVo Settings</b><br>
-        $rows('_tivo_SD', $sd_tivos_data, $sd_tivos_known)
-        $add_setting('sd_tivos', '_tivo_SD')
+        {{ rows('_tivo_SD', sd_tivos_data, sd_tivos_known) }}
+        {{ add_setting('sd_tivos', '_tivo_SD') }}
 </div>
 
-#set $section_count = 0
-#set $section_map = ''
-#for $name, $data in $shares_data
-	#set $section_count += 1
-	#set $section_number = 'section-' + str($section_count)
-	<input type="hidden" name="opts.$name" id="opts.$name" 
-         value="$section_number">
-	#set $section_map += $section_number + '|' + $name + ']'
-	<div id="set-$name" class="sett-sect">
-	[<input size="20" onChange="saveNotify();" id="$section_number" 
-         name="$section_number" value="$name">]<br>
-        $rows($section_number, $data, $shares_known)
-        $add_setting($name, $section_number)
+{% set sections = namespace(count=0, map='') %}
+{% for name, data in shares_data %}
+	{% set sections.count = sections.count + 1 %}
+	{% set section_number = 'section-' + sections.count|string %}
+	<input type="hidden" name="opts.{{ name }}" id="opts.{{ name }}" 
+         value="{{ section_number }}">
+	{% set sections.map = sections.map + section_number + '|' + name + ']' %}
+	<div id="set-{{ name }}" class="sett-sect">
+	[<input size="20" onChange="saveNotify();" id="{{ section_number }}" 
+         name="{{ section_number }}" value="{{ name }}">]<br>
+        {{ rows(section_number, data, shares_known) }}
+        {{ add_setting(name, section_number) }}
 	</div>
-#end for
+{% endfor %}
 
-#for $name, $data in $tivos_data
-	#set $section_count += 1
-	#set $section_number = 'section-' + str($section_count)
-	<input type="hidden" name="opts.$name" id="opts.$name" 
-         value="$section_number">
-	#set $section_map += $section_number + '|' + $name + ']'
-	<div id="set-$name" class="sett-sect">
-	[<input size="20" onChange="saveNotify();" id="$section_number" 
-         name="$section_number" value="$name">]<br>
-        $rows($section_number, $data, $tivos_known)
-        $add_setting($name, $section_number)
+{% for name, data in tivos_data %}
+	{% set sections.count = sections.count + 1 %}
+	{% set section_number = 'section-' + sections.count|string %}
+	<input type="hidden" name="opts.{{ name }}" id="opts.{{ name }}" 
+         value="{{ section_number }}">
+	{% set sections.map = sections.map + section_number + '|' + name + ']' %}
+	<div id="set-{{ name }}" class="sett-sect">
+	[<input size="20" onChange="saveNotify();" id="{{ section_number }}" 
+         name="{{ section_number }}" value="{{ name }}">]<br>
+        {{ rows(section_number, data, tivos_known) }}
+        {{ add_setting(name, section_number) }}
 	</div>
-#end for
+{% endfor %}
 <div id="set-add" class="sett-sect">
 	Add a New Section
 	<hr>
@@ -244,7 +240,7 @@
 	The Section has been marked for deletion. However it will not be 
         actually deleted until you click the <b>Save Changes</b> button.
 </div>
-<input type="hidden" id="Section_Map" name="Section_Map" value="$section_map">
+<input type="hidden" id="Section_Map" name="Section_Map" value="{{ sections.map }}">
       </div></form>
 
       </div>
@@ -254,20 +250,20 @@
       <td class="panel">
       <div id="sidesections" style="position: relative;">
       <!-- HELP SECTIONS -->
-      #for $setting in $help_list
-          #if $setting == 'Instructions'
-              #set $vis = 'block'
-          #else
-              #set $vis = 'none'
-          #end if
-          <div id="help-$setting" class="help-sect" style="display: $vis;">
-          <p style="text-align: center"><strong>$setting</strong></p>
-          #for $line in $help_list[$setting]
-              <p><strong>$(line.split(':', 1)[0]):</strong>
-               $(line.split(':', 1)[1])</p>
-          #end for
+      {% for setting in help_list %}
+          {% if setting == 'Instructions' %}
+              {% set vis = 'block' %}
+          {% else %}
+              {% set vis = 'none' %}
+          {% endif %}
+          <div id="help-{{ setting }}" class="help-sect" style="display: {{ vis }};">
+          <p style="text-align: center"><strong>{{ setting }}</strong></p>
+          {% for line in help_list[setting] %}
+              <p><strong>{{ line.split(':', 1)[0] }}:</strong>
+               {{ line.split(':', 1)[1] }}</p>
+          {% endfor %}
           </div>
-      #end for
+      {% endfor %}
       <!-- END HELP SECTIONS -->
       </div>
 

@@ -13,10 +13,9 @@ from email.utils import formatdate
 from urllib.parse import parse_qs, quote, unquote_plus
 from xml.sax.saxutils import escape
 
-from Cheetah.Template import Template
-
 import config
-from plugin import EncodeUnicode, GetPlugin
+from plugin import GetPlugin
+from templating import render
 
 # determine if application is a script file or frozen exe
 SCRIPTDIR = os.path.dirname(os.path.abspath(__file__))
@@ -376,47 +375,42 @@ class TivoHTTPHandler(http.server.BaseHTTPRequestHandler):
                     tsncontainers.append((section, settings))
             except Exception as msg:
                 self.server.logger.error(section + ' - ' + str(msg))
-        t = Template(file=os.path.join(SCRIPTDIR, 'templates',
-                                       'root_container.tmpl'),
-                     filter=EncodeUnicode)
         if self.server.beacon and self.server.beacon.bd:
-            t.renamed = self.server.beacon.bd.renamed
+            renamed = self.server.beacon.bd.renamed
         else:
-            t.renamed = {}
-        t.containers = tsncontainers
-        t.hostname = socket.gethostname()
-        t.escape = escape
-        t.quote = quote
-        self.send_xml(str(t))
+            renamed = {}
+        self.send_xml(render(
+            os.path.join(SCRIPTDIR, 'templates', 'root_container.tmpl'),
+            renamed=renamed, containers=tsncontainers,
+            hostname=socket.gethostname(), escape=escape, quote=quote))
 
     def infopage(self):
-        t = Template(file=os.path.join(SCRIPTDIR, 'templates',
-                                       'info_page.tmpl'),
-                     filter=EncodeUnicode)
-        t.admin = ''
+        admin = ''
 
         if config.get_server('tivo_mak') and config.get_server('togo_path'):
-            t.togo = '<br>Pull from TiVos:<br>'
+            togo = '<br>Pull from TiVos:<br>'
         else:
-            t.togo = ''
+            togo = ''
 
         for section, settings in config.getShares():
             plugin_type = settings.get('type')
             if plugin_type == 'settings':
-                t.admin += ('<a href="/TiVoConnect?Command=Settings&amp;' +
+                admin += ('<a href="/TiVoConnect?Command=Settings&amp;' +
                             'Container=' + quote(section) +
                             '">Settings</a><br>')
-            elif plugin_type == 'togo' and t.togo:
+            elif plugin_type == 'togo' and togo:
                 for tsn in config.tivos:
                     if tsn and 'address' in config.tivos[tsn]:
-                        t.togo += ('<a href="/TiVoConnect?' +
+                        togo += ('<a href="/TiVoConnect?' +
                             'Command=NPL&amp;Container=' + quote(section) +
                             '&amp;TiVo=' + config.tivos[tsn]['address'] +
                             '">' + escape(config.tivos[tsn].get('name',
                                           config.tivos[tsn]['address'])) +
                             '</a><br>')
 
-        self.send_html(str(t))
+        self.send_html(render(
+            os.path.join(SCRIPTDIR, 'templates', 'info_page.tmpl'),
+            admin=admin, togo=togo))
 
     def unsupported(self, query):
         message = UNSUP % '\n'.join(['<li>%s: %s</li>' %

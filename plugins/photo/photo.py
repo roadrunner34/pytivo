@@ -49,10 +49,10 @@ except ImportError:
     logger.info('Python Imaging Library not found; using FFmpeg')
 
 import config
-from Cheetah.Template import Template
 from lrucache import LRUCache
-from plugin import (EncodeUnicode, Plugin, quote, unquote, list_files,
-                    move_to_front, shuffle)
+from plugin import (Plugin, quote, unquote, list_files, move_to_front,
+                    shuffle)
+from templating import render
 from plugins.video.transcode import kill
 
 # determine if application is a script file or frozen exe
@@ -76,11 +76,8 @@ exif_orient_m = \
 # Find size in FFmpeg output
 ffmpeg_size = re.compile(r'.*Video: .+, (\d+)x(\d+)[, ].*')
 
-# Preload the template
 def tmpl(name):
-    with open(os.path.join(SCRIPTDIR, 'templates', name),
-              encoding='utf-8') as f:
-        return f.read()
+    return os.path.join(SCRIPTDIR, 'templates', name)
 
 PHOTO_TEMPLATE = tmpl('container.tmpl')
 ITEM_TEMPLATE = tmpl('item.tmpl')
@@ -368,7 +365,7 @@ class Photo(Plugin):
                 return
 
         local_base_path = self.get_local_base_path(handler, query)
-        if not self.get_local_path(handler, query):
+        if not self.get_local_path(handler, query, must_exist=True):
             handler.send_error(404)
             return
 
@@ -394,26 +391,21 @@ class Photo(Plugin):
             self.media_data_cache[f.name] = item
             return item
 
-        t = Template(PHOTO_TEMPLATE, filter=EncodeUnicode)
-        t.name = query['Container'][0]
-        t.container = handler.cname
-        t.files, t.total, t.start = self.get_files(handler, query,
-            ImageFileFilter)
-        t.files = [media_data(f) for f in t.files]
-        t.quote = quote
-        t.escape = escape
-
-        handler.send_xml(str(t))
+        files, total, start = self.get_files(handler, query,
+                                             ImageFileFilter)
+        handler.send_xml(render(
+            PHOTO_TEMPLATE, name=query['Container'][0],
+            container=handler.cname, files=[media_data(f) for f in files],
+            total=total, start=start, quote=quote, escape=escape))
 
     def QueryItem(self, handler, query):
         splitpath = [x for x in unquote_plus(query['Url'][0]).split('/') if x]
         path = os.path.join(handler.container['path'], *splitpath[1:])
 
         if path in self.media_data_cache:
-            t = Template(ITEM_TEMPLATE, filter=EncodeUnicode)
-            t.file = self.media_data_cache[path]
-            t.escape = escape
-            handler.send_xml(str(t))
+            handler.send_xml(render(ITEM_TEMPLATE,
+                                    file=self.media_data_cache[path],
+                                    escape=escape))
         else:
             handler.send_error(404)
 

@@ -1,48 +1,48 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <TiVoContainer>
-    <ItemStart>$start</ItemStart>
-    <ItemCount>#echo len($files) #</ItemCount>
+    <ItemStart>{{ start }}</ItemStart>
+    <ItemCount>{{ files|length }}</ItemCount>
     <Details>
-        <Title>$escape($name)</Title>
+        <Title>{{ escape(name) }}</Title>
         <ContentType>x-container/folder</ContentType>
         <SourceFormat>x-container/folder</SourceFormat>
-        <TotalItems>$total</TotalItems>
+        <TotalItems>{{ total }}</TotalItems>
     </Details>
-    #for $file in $files
-    #if $file['is_dir']
+    {% for file in files %}
+    {% if file['is_dir'] %}
     <Item>
         <Details>
-            <Title>$escape($file.name)</Title>
+            <Title>{{ escape(file.name) }}</Title>
             <ContentType>x-container/folder</ContentType>
             <SourceFormat>x-container/folder</SourceFormat>
         </Details>
         <Links>
             <Content>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($name)/$quote($file.name)</Url>
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(name) }}/{{ quote(file.name) }}</Url>
                 <ContentType>x-container/folder</ContentType>
             </Content>
         </Links>
     </Item>
-    #else
+    {% else %}
     <Item>
         <Details>
-            #set $title = '.'.join(file['name'].split('.')[:-1])
-            <Title>$escape($title)</Title>
+            {% set title = '.'.join(file['name'].split('.')[:-1]) %}
+            <Title>{{ escape(title) }}</Title>
             <ContentType>image/jpeg</ContentType>
-            #if 'odate' in $file
-            <CaptureDate>$file['odate']</CaptureDate>
-            #end if
-            <CreationDate>$file['cdate']</CreationDate>
-            <LastChangeDate>$file['mdate']</LastChangeDate>
+            {% if 'odate' in file %}
+            <CaptureDate>{{ file['odate'] }}</CaptureDate>
+            {% endif %}
+            <CreationDate>{{ file['cdate'] }}</CreationDate>
+            <LastChangeDate>{{ file['mdate'] }}</LastChangeDate>
         </Details>
         <Links>
             <Content>
                 <ContentType>image/jpeg</ContentType>
                 <AcceptsParams>Yes</AcceptsParams>
-                <Url>/$quote($container)$quote($file.part_path)</Url>
+                <Url>/{{ quote(container) }}{{ quote(file.part_path) }}</Url>
             </Content>
         </Links>
     </Item>
-    #end if
-    #end for
+    {% endif %}
+    {% endfor %}
 </TiVoContainer>

@@ -7,10 +7,9 @@ import subprocess
 import sys
 from urllib.parse import quote, unquote
 
-from Cheetah.Template import Template
-
 import config
-from plugin import EncodeUnicode, Plugin
+from plugin import Plugin
+from templating import render
 from plugins.settings import buildhelp
 
 logger = logging.getLogger('pyTivo.settings')
@@ -35,10 +34,7 @@ SETTINGS_MSG = """<h3>Settings Saved</h3> <p>Your settings have been
 saved to the pyTivo.conf file. However you may need to do a <b>Soft
 Reset</b> or <b>Restart</b> before these changes will take effect.</p>"""
 
-# Preload the templates
-tsname = os.path.join(SCRIPTDIR, 'templates', 'settings.tmpl')
-with open(tsname, encoding='utf-8') as f:
-    SETTINGS_TEMPLATE = f.read()
+SETTINGS_TEMPLATE = os.path.join(SCRIPTDIR, 'templates', 'settings.tmpl')
 
 BOOLEAN_SETTINGS = {
     'Server': {'debug', 'nosettings', 'togo_save_txt', 'togo_decode',
@@ -91,30 +87,34 @@ class Settings(Plugin):
                 if (not (config.config.has_option(section, 'type')) or config.config.get(section, 'type').lower() not in ['settings', 'togo']):
                     shares_data.append((section, dict(config.config.items(section, raw=True))))
 
-        t = Template(SETTINGS_TEMPLATE, filter=EncodeUnicode)
-        t.mode = buildhelp.mode
-        t.options = buildhelp.options
-        t.container = handler.cname
-        t.quote = quote
-        t.server_data = dict(config.config.items('Server', raw=True))
-        t.server_known = buildhelp.getknown('server')
-        t.fk_tivos_data = dict(config.config.items('_tivo_4K', raw=True))
-        t.fk_tivos_known = buildhelp.getknown('fk_tivos')
-        t.hd_tivos_data = dict(config.config.items('_tivo_HD', raw=True))
-        t.hd_tivos_known = buildhelp.getknown('hd_tivos')
-        t.sd_tivos_data = dict(config.config.items('_tivo_SD', raw=True))
-        t.sd_tivos_known = buildhelp.getknown('sd_tivos')
-        t.shares_data = shares_data
-        t.shares_known = buildhelp.getknown('shares')
-        t.tivos_data = [(section, dict(config.config.items(section, raw=True)))
-                        for section in config.config.sections()
-                        if section.startswith('_tivo_')
-                        and not section.startswith(('_tivo_SD', '_tivo_HD',
-                                                    '_tivo_4K'))]
-        t.tivos_known = buildhelp.getknown('tivos')
-        t.help_list = buildhelp.gethelp()
-        t.has_shutdown = hasattr(handler.server, 'shutdown')
-        handler.send_html(str(t))
+        def section_data(section):
+            return dict(config.config.items(section, raw=True))
+
+        tivos_data = [(section, section_data(section))
+                      for section in config.config.sections()
+                      if section.startswith('_tivo_')
+                      and not section.startswith(('_tivo_SD', '_tivo_HD',
+                                                  '_tivo_4K'))]
+        handler.send_html(render(
+            SETTINGS_TEMPLATE,
+            mode=buildhelp.mode,
+            options=buildhelp.options,
+            container=handler.cname,
+            quote=quote,
+            server_data=section_data('Server'),
+            server_known=buildhelp.getknown('server'),
+            fk_tivos_data=section_data('_tivo_4K'),
+            fk_tivos_known=buildhelp.getknown('fk_tivos'),
+            hd_tivos_data=section_data('_tivo_HD'),
+            hd_tivos_known=buildhelp.getknown('hd_tivos'),
+            sd_tivos_data=section_data('_tivo_SD'),
+            sd_tivos_known=buildhelp.getknown('sd_tivos'),
+            shares_data=shares_data,
+            shares_known=buildhelp.getknown('shares'),
+            tivos_data=tivos_data,
+            tivos_known=buildhelp.getknown('tivos'),
+            help_list=buildhelp.gethelp(),
+            has_shutdown=hasattr(handler.server, 'shutdown')))
 
     def each_section(self, query, label, section):
         new_setting = new_value = ' '

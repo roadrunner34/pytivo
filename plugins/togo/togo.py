@@ -17,11 +17,10 @@ from datetime import datetime, timezone
 from urllib.parse import quote, unquote
 from xml.dom import minidom
 
-from Cheetah.Template import Template
-
 import config
 import metadata
-from plugin import EncodeUnicode, Plugin
+from plugin import Plugin
+from templating import render
 
 try:
     from videoredo import interface
@@ -66,10 +65,7 @@ connect to the TiVo at %s.</p> <p>This is most likely caused by an
 incorrect Media Access Key. Please return to the Settings page and
 double check your <b>tivo_mak</b> setting.</p> <pre>%s</pre>"""
 
-# Preload the templates
-tnname = os.path.join(SCRIPTDIR, 'templates', 'npl.tmpl')
-with open(tnname, encoding='utf-8') as f:
-    NPL_TEMPLATE = f.read()
+NPL_TEMPLATE = os.path.join(SCRIPTDIR, 'templates', 'npl.tmpl')
 
 mswindows = (sys.platform == "win32")
 
@@ -531,27 +527,16 @@ class ToGo(Plugin):
             tivo_name = ''
 
 
-        t = Template(NPL_TEMPLATE, filter=EncodeUnicode)
-        t.quote = quote
-        t.folder = folder
-        t.status = status
-        if tivoIP in queue:
-            t.queue = queue[tivoIP]
-        t.has_tivodecode = has_tivodecode
-        t.has_tivolibre = has_tivolibre
-        t.togo_mpegts = config.is_ts_capable(tsn)
-        t.tname = tivo_name
-        t.tivoIP = tivoIP
-        t.container = handler.cname
-        t.data = data
-        t.len = len
-        t.TotalItems = getint(TotalItems)
-        t.ItemStart = getint(ItemStart)
-        t.ItemCount = getint(ItemCount)
-        t.FirstAnchor = quote(FirstAnchor)
-        t.shows_per_page = shows_per_page
-        t.title = title
-        handler.send_html(str(t), refresh='300')
+        page = render(
+            NPL_TEMPLATE, quote=quote, folder=folder, status=status,
+            queue=queue.get(tivoIP, []), has_tivodecode=has_tivodecode,
+            has_tivolibre=has_tivolibre,
+            togo_mpegts=config.is_ts_capable(tsn), tname=tivo_name,
+            tivoIP=tivoIP, container=handler.cname, data=data,
+            TotalItems=getint(TotalItems), ItemStart=getint(ItemStart),
+            ItemCount=getint(ItemCount), FirstAnchor=quote(FirstAnchor),
+            shows_per_page=shows_per_page, title=title)
+        handler.send_html(page, refresh='300')
 
 
     def get_out_file(self, url, tivoIP, togo_path):

@@ -5,9 +5,10 @@ changed, why, how it was verified, and what to watch out for.
 
 - **Branch:** `py3-modernization` (forked from `master` at `e7d56d3`)
 - **Python:** 3.9+ required; tested on **3.11.9** and **3.13**
-- **Status:** all modules import and run; 37 automated tests pass on both
+- **Status:** all modules import and run; 39 automated tests pass on both
   interpreters; tested against two real TiVos on the LAN (details in
-  [Verification](#verification))
+  [Verification](#verification)). Templates use **Jinja2** and ffmpeg is
+  **9.0.2**; see [section 7](#7-follow-up-cheetah3--jinja2-ffmpeg-331--90)
 - **Size:** 88 files changed, +2,479 / −19,489 lines (most of the removed
   lines are vendored third-party libraries)
 
@@ -33,11 +34,10 @@ started the port, but the app could not run:
 
 | Removed from repo | Replaced by | Notes |
 |---|---|---|
-| `Cheetah/` (Cheetah 2.0, 2007, Py2-only, broken) | **Cheetah3 ≥ 3.2.6** | Same `.tmpl` syntax; templates are unchanged |
+| `Cheetah/` (Cheetah 2.0, 2007, Py2-only, broken) | **Jinja2 ≥ 3.0** | First ported to Cheetah3, then replaced by Jinja2 (section 7) |
 | `mutagen/` (1.20 plus pyTivo patches) | **mutagen ≥ 1.45** | The pyTivo patch added `MediaKind`/`HDVideo`; replaced by a local `MEDIA_KIND_TV_SHOW = 10` constant |
 | `zeroconf.py` (python-zeroconf 0.19, unmodified) | **zeroconf ≥ 0.131** | API changes handled in `beacon.py` |
 | `pytz` (imported but undeclared) | stdlib `datetime.timezone.utc` | |
-| — | **legacy-cgi** (Python ≥ 3.13 only) | Cheetah3 still does `import cgi`, which 3.13 removed |
 
 Optional extras: Pillow (photos), psutil (Settings drive list), and on
 Windows pywin32 + comtypes (service, tray, VideoReDo), plus wxPython
@@ -74,10 +74,9 @@ Windows pywin32 + comtypes (service, tray, VideoReDo), plus wxPython
     and `move_to_front()` replace three copy-pasted directory walkers in
     the video, music and photo plugins.
   - `cmp`-based sorts became `key=` sorts with the same ordering.
-  - `EncodeUnicode` now returns `str`, since Cheetah3 is text-based.
   - Plugins load via `importlib`, and errors are logged with a traceback.
-  - On Python 3.13+, a narrow `sys.unraisablehook` filter drops one benign
-    Cheetah3 C-extension message (see Hiccups).
+  - `get_local_path(..., must_exist=True)`: a container request for a
+    folder that no longer exists returns 404 (section 7).
 - **`lrucache.py`**: rewritten on `OrderedDict`, with O(1) operations and
   thread safety. The old version relied on `__cmp__`, which Py3 ignores,
   and re-heapified on every read. Same public API, including `mtime()`.
@@ -159,7 +158,7 @@ Windows pywin32 + comtypes (service, tray, VideoReDo), plus wxPython
   cancelled folder picker no longer writes `.`.
 - **PyInstaller specs**: removed options PyInstaller 6 dropped (`cipher`,
   `win_private_assemblies`, `win_no_prefer_redirects`). Hidden imports now
-  use `collect_submodules('Cheetah')` and `collect_submodules('zeroconf')`.
+  use `collect_submodules('zeroconf')`.
 - **Repo hygiene**:
   - Added `requirements.txt`, `pyproject.toml` (with ruff and pytest
     config) and a `tests/` suite.
@@ -204,7 +203,7 @@ These were present in the original Py2 code, not just the port:
 
 ## 5. Verification
 
-### Automated: `python -m pytest` (37 tests, ~2 s)
+### Automated: `python -m pytest` (39 tests, ~2 s)
 - **Unit:** config parsing and fallbacks, bitrate maths, cp1252 legacy
   configs, the LRU cache, the Turing cipher (round-trip, plus decrypting
   a synthetic encrypted `.tivo` header), and `.txt`/`.nfo`/TiVo-details/
@@ -272,16 +271,12 @@ of your config, which contained the MAK, was deleted right after loading.
    different (still stable) order than the Py2 version did.
 
 **Upstream / ecosystem risks**
-8. **Cheetah3 is barely maintained** (latest release 3.2.6.post1). On
-   Python 3.13 it needs `legacy-cgi`, and its C NameMapper emits "Exception
-   ignored in PyMapping_HasKeyString" noise. That is filtered narrowly in
-   `plugin.py`, and output is unaffected. Python 3.14+ may need more
-   workarounds; a longer-term move to Jinja2 would remove this dependency,
-   but it means rewriting ten templates.
-9. **The bundled `bin/ffmpeg.exe` is version 3.3.1 (2017).** It worked
-   for everything tested, but a current ffmpeg will handle newer codecs
-   better. ffmpeg's console output format is what `video_info()` parses,
-   so re-run the tests after upgrading.
+8. ~~Cheetah3 is barely maintained~~ **Resolved:** replaced by Jinja2
+   (section 7).
+9. ~~The bundled ffmpeg is 3.3.1 (2017)~~ **Resolved:** ffmpeg 9.0.2, which
+   is no longer stored in git; run `python bin/get_ffmpeg.py` after
+   cloning (section 7). `video_info()` still scrapes ffmpeg's console
+   output, so re-run `python -m pytest` after any future ffmpeg upgrade.
 10. The tray's update check still calls `pytivodesktop.com` over plain
     HTTP. The site may no longer exist; failures are handled quietly.
 
@@ -304,4 +299,73 @@ of your config, which contained the MAK, was deleted right after loading.
     TiVo can resume (upstream design; it is then reaped).
 15. A transfer the user stops shows `state=finished` with no error in the
     ToGo status (upstream behavior).
-16. All of this work is uncommitted on branch `py3-modernization`.
+16. All of this work is on branch `py3-modernization`. The Python 3 port
+    is commit `9329c9d`; the section 7 follow-up comes after it.
+
+## 7. Follow-up: Cheetah3 → Jinja2, ffmpeg 3.3.1 → 9.0
+
+### Templates now use Jinja2
+Cheetah3 was the most fragile dependency left: its last release is
+3.2.6.post1, it needs the `legacy-cgi` shim on Python 3.13, and its C
+extension printed warnings there. All ten templates were rewritten in
+Jinja2 syntax and are rendered by the new `templating.py`
+(`render(path, **context)`). Call sites now pass an explicit context
+instead of setting attributes on a Cheetah object.
+
+- **Same output, proven:** during the migration every render went through
+  both the new Jinja2 template and the original Cheetah template (taken
+  from git) with the same data, and the outputs were diffed. Across the
+  test suite and a live run (both TiVos' Now Playing lists, every transfer
+  state, your real config, music playlists, photo folders, and rich video
+  metadata), all 29 renders were **byte-identical**. The one exception
+  was two meaningless trailing spaces after `</CaptureDate>`.
+- Jinja2 was configured to match Cheetah: `trim_blocks`/`lstrip_blocks`
+  (directive-only lines produce no output) and `finalize` (None renders as
+  an empty string).
+- `#def` became macros, and counters updated inside loops use
+  `namespace()` (Jinja2's loop scoping would otherwise reset them).
+- Removed: the Cheetah3 and legacy-cgi dependencies, the
+  `EncodeUnicode` filter, and the Python 3.13 warning filter. The test
+  suite is now warning-free on 3.11 and 3.13, and the frozen exe shrank
+  from 33.7 MB to 29.6 MB.
+
+**Bugs fixed after parity was proven** (deliberate output changes):
+1. Music playlists (`.m3u` etc.) put titles and URLs into the XML
+   unescaped, so an entry like "Simon & Garfunkel" or a stream URL with
+   `&` made the whole container invalid XML for the TiVo.
+2. The Settings page put values into `value="…"` attributes unescaped, so
+   a setting containing `"` (common in `ffmpeg_pram`) was truncated and
+   corrupted on the next save.
+3. The ToGo page inserted TiVo titles, descriptions and error messages
+   into HTML unescaped.
+4. A TiVo asking for a folder that had been deleted got its connection
+   dropped with no response; it now gets a 404.
+
+All four changes were checked: HTML-unescaping the new output reproduces
+the old output exactly. Regression tests were added for 1 and 4.
+
+### ffmpeg 9.0.2
+- Source: the gyan.dev "release essentials" build (one of the Windows
+  builds linked from ffmpeg.org), verified against its published SHA-256.
+- **Compatibility check:** ffmpeg 3.3.1 and 9.0.2 were both run on nine
+  files (generated DVD MPEG-2/AC-3, anamorphic TS, 5.1, mono AAC, and your
+  four real MKVs), for an HD TiVo (PS and TS) and an SD TiVo. Every
+  transcode decision and every generated ffmpeg command was **identical**.
+  The only differences were extra descriptive text in audio-stream labels
+  and slightly more accurate durations. Remuxing your real H.264/E-AC3 MKV
+  to TS and fully transcoding it to MPEG-2 both worked.
+- Fixed in passing: ffmpeg writes CRLF on Windows, so every parsed
+  audio-stream label used to end in a stray `\r`.
+- **Not stored in git any more:** the static `ffmpeg.exe` is 105 MB, over
+  GitHub's 100 MB file limit, and a push containing it would be rejected.
+  It is gitignored and fetched with:
+
+  ```sh
+  python bin/get_ffmpeg.py
+  ```
+
+  pyTivo still finds ffmpeg in `bin/` first and then on `PATH`, so an
+  installed ffmpeg (e.g. `winget install Gyan.FFmpeg`) also works. The old
+  3.3.1 binary remains in git history.
+- **Hiccup:** fresh clones have no ffmpeg until that script is run (or
+  ffmpeg is installed), and transcoding is unavailable until then.

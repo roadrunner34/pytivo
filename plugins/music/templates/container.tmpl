@@ -1,65 +1,65 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <TiVoContainer>
-    <ItemStart>$start</ItemStart>
-    <ItemCount>#echo len($files) #</ItemCount>
+    <ItemStart>{{ start }}</ItemStart>
+    <ItemCount>{{ files|length }}</ItemCount>
     <Details>
-        <Title>$escape($name)</Title>
+        <Title>{{ escape(name) }}</Title>
         <ContentType>x-container/folder</ContentType>
         <SourceFormat>x-container/folder</SourceFormat>
-        <TotalItems>$total</TotalItems>
+        <TotalItems>{{ total }}</TotalItems>
     </Details>
-    #for $file in $files
-    #set $title = '.'.join(file['name'].split('.')[:-1])
-    #if $file['is_dir']
+    {% for file in files %}
+    {% set title = '.'.join(file['name'].split('.')[:-1]) %}
+    {% if file['is_dir'] %}
     <Item>
         <Details>
-            <Title>$escape($file.name)</Title>
+            <Title>{{ escape(file.name) }}</Title>
             <ContentType>x-container/folder</ContentType>
         </Details>
         <Links>
             <Content>
                 <ContentType>x-tivo-container/folder</ContentType>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($name)/$quote($file.name)</Url>
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(name) }}/{{ quote(file.name) }}</Url>
             </Content>
         </Links>
     </Item>
-    #elif $file['is_playlist']
+    {% elif file['is_playlist'] %}
     <Item>
         <Details>
-            <Title>$escape($title)</Title>
+            <Title>{{ escape(title) }}</Title>
             <ContentType>x-tivo-container/playlist</ContentType>
         </Details>
         <Links>
             <Content>
                 <ContentType>x-tivo-container/playlist</ContentType>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($name)/$quote($file.name)</Url>
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(name) }}/{{ quote(file.name) }}</Url>
             </Content>
         </Links>
     </Item>
-    #else
+    {% else %}
     <Item>
         <Details>
-            #if not 'Title' in $file
-            <Title>$escape($title)</Title>
-            #end if
+            {% if not 'Title' in file %}
+            <Title>{{ escape(title) }}</Title>
+            {% endif %}
             <ContentType>audio/mpeg</ContentType>
-            #for $key in ('Title', 'ArtistName', 'SongTitle', 'AlbumTitle', 'AlbumYear', 'MusicGenre')
-            #if $key in $file and $file[$key]
-            <$key>$escape($file[$key])</$key>
-            #end if
-            #end for
-            #if 'Duration' in $file
-            <Duration>$file['Duration']</Duration>
-            #end if
+            {% for key in ('Title', 'ArtistName', 'SongTitle', 'AlbumTitle', 'AlbumYear', 'MusicGenre') %}
+            {% if key in file and file[key] %}
+            <{{ key }}>{{ escape(file[key]) }}</{{ key }}>
+            {% endif %}
+            {% endfor %}
+            {% if 'Duration' in file %}
+            <Duration>{{ file['Duration'] }}</Duration>
+            {% endif %}
         </Details>
         <Links>
             <Content>
                 <ContentType>audio/mpeg</ContentType>
-                <AcceptsParams>$file.params</AcceptsParams>
-                <Url>/$quote($container)$quote($file.part_path)</Url>
+                <AcceptsParams>{{ file.params }}</AcceptsParams>
+                <Url>/{{ quote(container) }}{{ quote(file.part_path) }}</Url>
             </Content>
         </Links>
     </Item>
-    #end if
-    #end for
+    {% endif %}
+    {% endfor %}
 </TiVoContainer>

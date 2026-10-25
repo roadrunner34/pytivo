@@ -1,78 +1,78 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <TiVoContainer>
-    <ItemStart>$start</ItemStart>
-    <ItemCount>#echo len($files) #</ItemCount>
+    <ItemStart>{{ start }}</ItemStart>
+    <ItemCount>{{ files|length }}</ItemCount>
     <Details>
-        <Title>$escape($name)</Title>
+        <Title>{{ escape(name) }}</Title>
         <ContentType>x-container/playlist</ContentType>
         <SourceFormat>x-container/playlist</SourceFormat>
-        <TotalItems>$total</TotalItems>
+        <TotalItems>{{ total }}</TotalItems>
     </Details>
-    #for $file in $files
-    #if '://' in $file['path']
+    {% for file in files %}
+    {% if '://' in file['path'] %}
     <Item>
         <Details>
-            #if not 'Title' in $file
-            <Title>#echo $file['path'].strip() #</Title>
-            #end if
-            #if $file['is_playlist']
+            {% if not 'Title' in file %}
+            <Title>{{ file['path'].strip()|e }}</Title>
+            {% endif %}
+            {% if file['is_playlist'] %}
             <ContentType>x-tivo-container/playlist</ContentType>
-            #else
+            {% else %}
             <ContentType>audio/mpeg</ContentType>
-            #end if
-            #for $key in ('Title', 'Duration')
-            #if $key in $file and $file[$key]
-            <$key>$file[$key]</$key>
-            #end if
-            #end for
+            {% endif %}
+            {% for key in ('Title', 'Duration') %}
+            {% if key in file and file[key] %}
+            <{{ key }}>{{ file[key]|e }}</{{ key }}>
+            {% endif %}
+            {% endfor %}
         </Details>
         <Links>
             <Content>
-                #if $file['is_playlist']
+                {% if file['is_playlist'] %}
                 <ContentType>x-tivo-container/playlist</ContentType>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($container)/$quote($file['path'].strip())</Url>
-                #else
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(container) }}/{{ quote(file['path'].strip()) }}</Url>
+                {% else %}
                 <ContentType>audio/mpeg</ContentType>
                 <AcceptsParams>No</AcceptsParams>
-                <Url>$file['path'].strip()</Url>
-                #end if
+                <Url>{{ file['path'].strip()|e }}</Url>
+                {% endif %}
             </Content>
         </Links>
     </Item>
-    #elif $file['is_playlist']
+    {% elif file['is_playlist'] %}
     <Item>
         <Details>
-            <Title>#echo '.'.join(file['name'].split('.')[:-1]) #</Title>
+            <Title>{{ '.'.join(file['name'].split('.')[:-1])|e }}</Title>
             <ContentType>x-tivo-container/playlist</ContentType>
         </Details>
         <Links>
             <Content>
                 <ContentType>x-tivo-container/playlist</ContentType>
-                <Url>/TiVoConnect?Command=QueryContainer&amp;Container=$quote($container)$quote($file.part_path)</Url>
+                <Url>/TiVoConnect?Command=QueryContainer&amp;Container={{ quote(container) }}{{ quote(file.part_path) }}</Url>
             </Content>
         </Links>
     </Item>
-    #else
+    {% else %}
     <Item>
         <Details>
-            #if not 'Title' in $file
-            <Title>#echo '.'.join(file['name'].split('.')[:-1]) #</Title>
-            #end if
+            {% if not 'Title' in file %}
+            <Title>{{ '.'.join(file['name'].split('.')[:-1])|e }}</Title>
+            {% endif %}
             <ContentType>audio/mpeg</ContentType>
-            #for $key in ('Title', 'Duration', 'ArtistName', 'SongTitle', 'AlbumTitle', 'AlbumYear', 'MusicGenre')
-            #if $key in $file and $file[$key]
-            <$key>$file[$key]</$key>
-            #end if
-            #end for
+            {% for key in ('Title', 'Duration', 'ArtistName', 'SongTitle', 'AlbumTitle', 'AlbumYear', 'MusicGenre') %}
+            {% if key in file and file[key] %}
+            <{{ key }}>{{ file[key]|e }}</{{ key }}>
+            {% endif %}
+            {% endfor %}
         </Details>
         <Links>
             <Content>
                 <ContentType>audio/mpeg</ContentType>
-                <AcceptsParams>$file.params</AcceptsParams>
-                <Url>/$quote($container)$quote($file.part_path)</Url>
+                <AcceptsParams>{{ file.params }}</AcceptsParams>
+                <Url>/{{ quote(container) }}{{ quote(file.part_path) }}</Url>
             </Content>
         </Links>
     </Item>
-    #end if
-    #end for
+    {% endif %}
+    {% endfor %}
 </TiVoContainer>
