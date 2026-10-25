@@ -12,6 +12,8 @@ if ROOT not in sys.path:
 
 
 def find_ffmpeg():
+    if os.environ.get('PYTIVO_FFMPEG'):
+        return os.environ['PYTIVO_FFMPEG']
     exe = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
     bundled = os.path.join(ROOT, 'bin', exe)
     if os.path.isfile(bundled):

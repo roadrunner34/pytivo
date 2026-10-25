@@ -700,6 +700,8 @@ def video_info(inFile, cache=True):
 
         err_tmp.seek(0)
         output = err_tmp.read().decode('utf-8', 'replace')
+    # ffmpeg ends lines with CRLF on Windows; keep '\r' out of matches
+    output = output.replace('\r\n', '\n')
     debug('ffmpeg output=%s' % output)
 
     attrs = {'container': r'Input #0, ([^,]+),',

@@ -14,3 +14,7 @@ dist/
 # Local configuration (written by the Settings page; holds your MAK)
 pyTivo.conf
 log.txt
+
+# ffmpeg is downloaded by bin/get_ffmpeg.py (too large for GitHub)
+bin/ffmpeg.exe
+bin/ffmpeg.exe.partial
