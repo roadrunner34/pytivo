@@ -1,0 +1,12 @@
+# The repo root ignores build/ (PyInstaller output). Here build/ holds the
+# app icon and installer files that the Go code embeds, so it is kept.
+!build/
+build/bin/
+
+# Frontend. The root also ignores dist/; the placeholder inside is kept so
+# the Go embed of frontend/dist compiles before the frontend is built.
+frontend/node_modules/
+!frontend/dist/
+frontend/dist/*
+!frontend/dist/gitkeep
+frontend/package.json.md5

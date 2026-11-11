@@ -1,0 +1,14 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TivoDesk",
+  "outputfilename": "TivoDesk",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "info": {
+    "productName": "TivoDesk",
+    "productVersion": "0.1.0",
+    "comments": "Serves media to TiVos and downloads recordings from them"
+  }
+}

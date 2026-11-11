@@ -3,7 +3,7 @@
 **A Go + Wails desktop app that fully replaces pyTivo: fast, MAK-based, no Java, no shared code.**
 
 > [!NOTE]
-> **Status: S0 spikes in progress on branch `tivodesk`.** Three of four spikes have results; see [S0 results](#s0-results-2026-11-10). No app code exists yet.
+> **Status: P0 Foundation is built on branch `tivodesk`.** The app starts, manages settings, imports `pyTivo.conf` and stores the MAK; see [P0 results](#p0-results-2026-11-10). It does not talk to TiVos yet. One S0 item is still open: decryption fixtures.
 > Drafted 2026-10-24, reviewed and revised 2026-11-10.
 > The review checked every claim below against the pyTivo source at commit `2ed403c`, the local toolchain, and current Go and Wails releases. What changed is listed in the [review log](#review-log-2026-11-10).
 
@@ -13,7 +13,7 @@
 | **Stack** | Go engine, Wails v2 shell (WebView2), React + TypeScript + Vite UI, SQLite, external ffmpeg |
 | **Where** | New top-level folder `tivodesk/` (its own Go module) on a new branch `tivodesk` |
 | **pyTivo's role** | Reference only, plus the oracle for golden tests. It stays in the repo untouched |
-| **Next step** | Finish [S0](#s0-results-2026-11-10): run `tlsprobe` with the MAK, look at the tray spike, install a JRE and collect fixtures |
+| **Next step** | P1: discovery, Now Playing and raw downloads. Decryption fixtures (S0-2) can be collected alongside it |
 
 **Contents:** [Why](#why-replace-pytivo) · [Decisions](#decisions) · [Architecture](#architecture) · [Legacy TLS](#legacy-tls-togo) · [UI](#ui) · [Roadmap](#roadmap) · [Next steps](#next-steps) · [Risks](#risks) · [Verification](#verification) · [Review log](#review-log-2026-11-10)
 
@@ -54,7 +54,7 @@ These came out of the review. Each has a recommendation; none blocks the S0 spik
 | ~~Go toolchain version~~ | **Settled by S0-1:** Go 1.27.3 talks to both TiVos. | Go 1.27, pinned with a `toolchain` line. |
 | **TSN classes for newer boxes** | One of the two LAN TiVos is an Edge (`tcd/Keystone`, TSN prefix `D6E`). pyTivo's `is4Ktivo` only knows `849` and `8F9`, so it treats the Edge as plain HD. | Classify from the mDNS `platform` property as well as the TSN prefix. Keep pyTivo's behaviour for golden parity, and add the new classes on top. |
 | **Is service mode in v1?** | A Windows service runs in session 0 as a different account. It cannot show the WebView2 UI and cannot read the user's Credential Manager, where the plan stores the MAK. Service mode therefore needs a UI-to-engine IPC layer and a second secret store. | Defer service mode past v1. Ship tray + start-at-login instead. Define the engine API as a Go interface now so IPC can be added without rewriting the UI. |
-| **Access control on the HMO server** | pyTivo has `allowed_clients` and per-TSN checks (`httpserver.py` `authorize`). The plan never mentioned them. | Port the same rule: open by default, restricted when `allowed_clients` is set. |
+| ~~Access control on the HMO server~~ | **Settled:** pyTivo's rule is ported in `config` (open by default, restricted when `allowedips` is set). | The HMO server enforces it in P3. |
 
 ## Architecture
 
@@ -245,6 +245,29 @@ The two TiVos found by mDNS:
 - [ ] Install a JRE, then collect PS and TS fixtures with pyTivo (S0-2).
 - [ ] Run the Go metadata decrypt against a real fixture.
 
+### P0 results (2026-11-10)
+
+`tivodeskuildin\TivoDesk.exe` is a working desktop app that manages settings. It has a Dashboard, Shares, Settings and Logs page, a tray icon, close-to-tray and a single instance.
+
+| P0 exit criterion | Status |
+|---|---|
+| Importer round-trips `pyTivo.conf.dist` and committed INI fixtures | **Done.** `pyTivo.conf.dist` imports with no warnings. A fixture covers per-TiVo and class sections, cp1252, a byte-order mark, `%` in values, duplicates and pyTivo-only settings. |
+| Settings editable in the UI | **Done** for shares and the main server settings. Per-TiVo and class settings are imported, kept and used, but have no editor yet. |
+| MAK entered and stored | **Done.** Stored in Windows Credential Manager, validated as 10 digits, and masked in the log. Tests check it never reaches the settings file or the log. |
+| `tests/test_config.py` cases ported | **Done.** All seven, plus cases for the Edge and Roamio prefixes. |
+| CI workflow | **Written, not yet run on GitHub.** `.github/workflows/tivodesk.yml` runs gofmt, vet, tests, the frontend build and `wails build`. Every step passes locally on a simulated fresh checkout. golangci-lint is not included yet. |
+
+What was checked by hand: the app was run in dev mode against a throwaway settings folder, and import, MAK entry, share edits, live updates and the log viewer were exercised through the real UI bridge.
+
+Decisions made while building:
+
+- **Settings stay strings**, in the same three-level layout as pyTivo (`[tivo.<TSN>]` → `[class.HD]` → `[server]`), so golden tests can compare answers exactly.
+- **The INI reader is our own** (about 80 lines), written to match Python's `configparser`, instead of `ini.v1`.
+- **Digest auth is our own** too; the 40 lines in `tlsprobe` worked against both TiVos.
+- **A bad bit rate falls back to the default** and is reported on the Dashboard. pyTivo raises an exception in the middle of a transfer.
+- **`allowed_clients` is ported** in `config`; the HMO server will enforce it in P3.
+- **Two environment variables for development:** `TIVODESK_CONFIG` picks the settings file and `TIVODESK_SECRETS=memory` keeps keys out of Credential Manager.
+
 **Where the code is:**
 
 | Path | What |
@@ -254,6 +277,12 @@ The two TiVos found by mDNS:
 | `tivodesk/cmd/tlsprobe` | The TLS probe. |
 | `tivodesk/tools/gen_turing.py` | Generates the Go tables and the test vectors from pyTivo. |
 | `tivodesk/spikes/tray` | Wails tray spike. Throwaway, with its own Go module. |
+| `tivodesk/main.go`, `app.go` | Desktop shell: window, tray, single instance, and the bridge to the engine. |
+| `tivodesk/internal/core` | The headless engine and its `API` interface. |
+| `tivodesk/internal/config` | Settings model, lookup order, TSN classes, bit-rate rules. |
+| `tivodesk/internal/pytivoimport` | `pyTivo.conf` importer. |
+| `tivodesk/internal/secrets`, `events`, `logx` | Credential store, event bus, and the log with secret masking. |
+| `tivodesk/frontend` | React + TypeScript UI. |
 
 ## Risks
 

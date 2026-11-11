@@ -1,0 +1,67 @@
+name: TivoDesk
+
+on:
+  push:
+    paths:
+      - "tivodesk/**"
+      - ".github/workflows/tivodesk.yml"
+      # The importer tests read pyTivo's sample config.
+      - "pyTivo.conf.dist"
+  pull_request:
+    paths:
+      - "tivodesk/**"
+      - ".github/workflows/tivodesk.yml"
+      - "pyTivo.conf.dist"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tivodesk
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tivodesk/go.mod
+          cache-dependency-path: tivodesk/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tivodesk/frontend/package-lock.json
+
+      # The spikes folder holds throwaway code with its own module, so the
+      # checks below name the real packages rather than using ./...
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l main.go app.go internal cmd)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build the frontend
+        working-directory: tivodesk/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the app
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+          wails build -s
+          test -f build/bin/TivoDesk.exe

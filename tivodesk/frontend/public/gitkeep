@@ -1,0 +1,1 @@
+keeps frontend/dist present so the Go embed always compiles
