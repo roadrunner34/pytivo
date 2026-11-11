@@ -4,9 +4,10 @@
 //	tivodesk-cli discover [-wait 5s]
 //	tivodesk-cli npl [-wait 5s] [-tivo NAME]
 //	tivodesk-cli download -tivo NAME [-match TEXT] [-ps] [-dir FOLDER]
+//	tivodesk-cli decrypt [-check] [-out FOLDER] FILE.tivo ...
 //	tivodesk-cli faketivo [-n 684] [-mak 1234567890] [-mb 1] [-delay 0]
 //
-// npl and download read the Media Access Key from the TIVO_MAK environment
+// npl, download and decrypt read the Media Access Key from the TIVO_MAK environment
 // variable, so that it stays out of shell history. The key is never
 // printed.
 package main
@@ -18,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"tivodesk/internal/config"
 	"tivodesk/internal/discovery"
 	"tivodesk/internal/tivo"
+	"tivodesk/internal/tivocrypt/decrypt"
 	"tivodesk/internal/togo"
 	"tivodesk/internal/togo/faketivo"
 )
@@ -36,6 +39,9 @@ func usage() {
   tivodesk-cli download -tivo NAME [-match TEXT] [-ps] [-dir FOLDER]
                                               download one recording, the smallest
                                               whose title contains TEXT (needs TIVO_MAK)
+  tivodesk-cli decrypt [-check] [-out FOLDER] FILE.tivo ...
+                                              decrypt recordings (needs TIVO_MAK); -check
+                                              has ffmpeg read each result and count errors
   tivodesk-cli faketivo [-n 684] [-mak KEY]   run a pretend TiVo for trying the app`)
 	os.Exit(2)
 }
@@ -219,6 +225,147 @@ func download(args []string) {
 	}
 }
 
+// findFFmpeg returns the ffmpeg to use: the one named, the one in pyTivo's
+// bin folder if this is run from the repository, or the one on the PATH.
+func findFFmpeg(named string) string {
+	if named != "" {
+		return named
+	}
+	for _, candidate := range []string{`..\bin\ffmpeg.exe`, `bin\ffmpeg.exe`} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "ffmpeg"
+}
+
+// checkWithFFmpeg has ffmpeg decode a whole file and reports what it
+// found. A stream that was decrypted wrongly is noise to a decoder, so it
+// produces errors by the thousand; a good one produces few or none.
+func checkWithFFmpeg(ffmpeg, path string) bool {
+	// What ffmpeg thinks is in the file. This exits with an error, because
+	// no output is asked for; only what it prints matters.
+	info, _ := exec.Command(ffmpeg, "-hide_banner", "-i", path).CombinedOutput()
+	streams := 0
+	for _, line := range strings.Split(string(info), "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "Stream #") || strings.HasPrefix(line, "Duration:") {
+			fmt.Println("    " + line)
+			if strings.HasPrefix(line, "Stream #") {
+				streams++
+			}
+		}
+	}
+
+	start := time.Now()
+	out, err := exec.Command(ffmpeg, "-hide_banner", "-v", "error", "-i", path, "-f", "null", "-").CombinedOutput()
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	fmt.Printf("    ffmpeg decoded it in %s: %d streams, %d error lines", time.Since(start).Round(time.Second), streams, len(lines))
+	if err != nil {
+		fmt.Printf(", and it stopped with: %v", err)
+	}
+	fmt.Println()
+	for i, line := range lines {
+		if i == 8 {
+			fmt.Printf("      ... and %d more\n", len(lines)-i)
+			break
+		}
+		fmt.Println("      " + line)
+	}
+	return err == nil && streams > 0
+}
+
+// decryptFiles decrypts recordings already on disk. It is the check that
+// decryption works on real files.
+func decryptFiles(args []string) {
+	fs := flag.NewFlagSet("decrypt", flag.ExitOnError)
+	out := fs.String("out", "", "the folder to write to (default: beside each recording)")
+	check := fs.Bool("check", false, "have ffmpeg decode each result and count its errors")
+	ffmpeg := fs.String("ffmpeg", "", "the ffmpeg to use for -check")
+	fs.Parse(args)
+
+	mak := os.Getenv("TIVO_MAK")
+	if mak == "" {
+		fmt.Fprintln(os.Stderr, "Set the TIVO_MAK environment variable to your Media Access Key first.")
+		os.Exit(2)
+	}
+	if fs.NArg() == 0 {
+		usage()
+	}
+	// PowerShell does not expand wildcards for programs, so do it here.
+	var files []string
+	for _, arg := range fs.Args() {
+		if matches, _ := filepath.Glob(arg); len(matches) > 0 {
+			files = append(files, matches...)
+		} else {
+			files = append(files, arg)
+		}
+	}
+
+	failed := false
+	for _, path := range files {
+		fmt.Println(filepath.Base(path))
+		in, err := os.Open(path)
+		if err != nil {
+			fmt.Println("  FAILED:", err)
+			failed = true
+			continue
+		}
+		dir := filepath.Dir(path)
+		if *out != "" {
+			dir = *out
+			os.MkdirAll(dir, 0o755)
+		}
+		// The extension depends on the kind of stream, which is not known
+		// until the header has been read; write to a temporary name first.
+		base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		tmp := filepath.Join(dir, base+".decrypting")
+		f, err := os.Create(tmp)
+		if err != nil {
+			in.Close()
+			fmt.Println("  FAILED:", err)
+			failed = true
+			continue
+		}
+		start := time.Now()
+		stats, err := decrypt.Decrypt(in, f, mak)
+		size, _ := f.Seek(0, io.SeekCurrent)
+		in.Close()
+		f.Close()
+		if err != nil {
+			os.Remove(tmp)
+			fmt.Println("  FAILED:", err)
+			failed = true
+			continue
+		}
+		dest := filepath.Join(dir, base+stats.Extension())
+		os.Remove(dest)
+		if err := os.Rename(tmp, dest); err != nil {
+			fmt.Println("  FAILED:", err)
+			failed = true
+			continue
+		}
+		took := time.Since(start)
+		fmt.Printf("  -> %s\n  %.0f MB in %s (%.0f MB/s); %d packets, %d of them encrypted",
+			dest, float64(size)/1e6, took.Round(time.Millisecond), float64(size)/1e6/max(took.Seconds(), 0.001),
+			stats.Packets, stats.Decrypted)
+		if stats.Undecryptable > 0 || stats.SkippedBytes > 0 {
+			fmt.Printf("; %d dropped for want of a key, %d damaged bytes skipped", stats.Undecryptable, stats.SkippedBytes)
+		}
+		fmt.Println()
+		if *check && !checkWithFFmpeg(findFFmpeg(*ffmpeg), dest) {
+			failed = true
+		}
+	}
+	if failed {
+		os.Exit(1)
+	}
+}
+
 // fake runs a pretend TiVo until interrupted. Point the app at it with
 // the TIVODESK_EXTRA_TIVO environment variable.
 func fake(args []string) {
@@ -250,6 +397,8 @@ func main() {
 		npl(os.Args[2:])
 	case "download":
 		download(os.Args[2:])
+	case "decrypt":
+		decryptFiles(os.Args[2:])
 	case "faketivo":
 		fake(os.Args[2:])
 	default:

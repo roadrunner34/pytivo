@@ -3,7 +3,7 @@
 **A Go + Wails desktop app that fully replaces pyTivo: fast, MAK-based, no Java, no shared code.**
 
 > [!NOTE]
-> **Status: P1 is done on branch `tivodesk`.** The app finds TiVos, lists their recordings and downloads them, still encrypted, and all three are confirmed on both real TiVos; see [P1 progress](#p1-progress-2026-11-11). The first decryption fixtures exist. P2, native decryption, is next.
+> **Status: P1 is done on branch `tivodesk`.** The app finds TiVos, lists their recordings and downloads them, still encrypted, and all three are confirmed on both real TiVos; see [P1 progress](#p1-progress-2026-11-11). P2, native decryption, is written and passes its own tests, but has not yet been run on a real recording with the real key; see [P2 progress](#p2-progress-2026-11-11).
 > Drafted 2026-10-24, reviewed and revised 2026-11-10.
 > The review checked every claim below against the pyTivo source at commit `2ed403c`, the local toolchain, and current Go and Wails releases. What changed is listed in the [review log](#review-log-2026-11-10).
 
@@ -13,7 +13,7 @@
 | **Stack** | Go engine, Wails v2 shell (WebView2), React + TypeScript + Vite UI, SQLite, external ffmpeg |
 | **Where** | New top-level folder `tivodesk/` (its own Go module) on a new branch `tivodesk` |
 | **pyTivo's role** | Reference only, plus the oracle for golden tests. It stays in the repo untouched |
-| **Next step** | P2: native decryption, starting with transport streams, tested on the two recordings in `D:	ivo-test` |
+| **Next step** | Run `tivodesk-cli decrypt -check` on the two recordings in `D:\tivo-test`. If ffmpeg reads the results cleanly, wire decryption into downloads |
 
 **Contents:** [Why](#why-replace-pytivo) · [Decisions](#decisions) · [Architecture](#architecture) · [Legacy TLS](#legacy-tls-togo) · [UI](#ui) · [Roadmap](#roadmap) · [Next steps](#next-steps) · [Risks](#risks) · [Verification](#verification) · [Review log](#review-log-2026-11-10)
 
@@ -297,7 +297,7 @@ Discovery, Now Playing and raw downloads are built and confirmed on both real Ti
 | Family Room (Edge) | RuPaul's Drag Race, "Season 18 Sneak Peek" | 224 MB | 21.7 MB/s | 0 |
 | Paella Tivo (Roamio) | NOVA, "The Battle to Breathe" | 32 MB | 7.5 MB/s | 0 |
 
-Both files have a valid `.TiVo` header with the transport-stream flag set, the video starts on a packet boundary, and the `.txt` files hold the full details (19 and 56 lines). They are in `D:	ivo-test`, outside the repository, and are the first fixtures for P2 (S0-2). Program-stream fixtures are still to collect, with `-ps`.
+Both files have a valid `.TiVo` header with the transport-stream flag set, the video starts on a packet boundary, and the `.txt` files hold the full details (19 and 56 lines). They are in `D:\tivo-test`, outside the repository, and are the first fixtures for P2 (S0-2). Program-stream fixtures are still to collect, with `-ps`.
 
 Both TiVos accept three page requests at once. A full fetch takes 5 to 7 seconds and happens once; after that the saved list is shown at once and confirmed in about a tenth of a second. So pages are not streamed to the UI: a progress bar on the first fetch is enough. That settles the open question about streaming.
 
@@ -329,6 +329,37 @@ Each picks the smallest recording that is not copy protected (add `-match "part 
 
 Development aids: `tivodesk-cli faketivo [-n 684] [-mb 30] [-delay 15ms]` runs a pretend TiVo; `TIVODESK_EXTRA_TIVO=Name=host:port` lists it in the app; `TIVODESK_DISCOVERY=off` stops the search for real TiVos, so that a test key is never sent to one.
 
+### P2 progress (2026-11-11)
+
+Decryption of transport and program streams is written. **It has not yet decrypted a real recording**: that needs the MAK.
+
+| P2 piece | Status |
+|---|---|
+| Turing cipher, header and metadata | Done in S0. |
+| Transport stream | **Written; passes synthetic tests.** A port of tivodecode-ng: PAT and PMT, the key stream (type `0x97`), and the header walk that finds where each picture's clear headers end. |
+| Program stream | **Written; passes synthetic tests.** No real program-stream fixture exists yet. |
+| Wrong MAK | Reported before anything is written, by checking that the header's details chunk decrypts to XML. Confirmed on a real file with a deliberately wrong key. |
+| `tivodesk-cli decrypt` | Done, with `-check`, which has ffmpeg decode the result and count errors. |
+| Decrypt while downloading; Decrypt option in the UI | Not started. Waits on the real-file check. |
+
+Decisions:
+
+- **ffmpeg is the oracle, not tivolibre.** No Java runtime is installed. ffmpeg decoding the output without errors shows it is correct video; it does not show it is byte-identical to tivolibre's output. The phase's exit criterion changes to match.
+- **The reference is tivodecode-ng (BSD licence)**, not tivolibre (GPL). Its licence text is kept beside the port, in `internal/tivocrypt/decrypt/LICENSE-tivodecode`.
+- **The port keeps the reference's quirks**, because every byte's place in the keystream depends on them. Three deliberate differences, none of which changes a stream the reference handles: packets on PIDs outside the programme are passed through instead of dropped; a start code the reference does not know ends the header walk instead of stalling the stream; the PMT's programme-information length is honoured.
+
+What the tests can and cannot show: the synthetic tests prove the port is self-consistent (what it encrypts it decrypts, headers stay clear, keystreams continue and restart at the right moments, damage is skipped). They cannot prove it matches a TiVo. Only a real recording can.
+
+**To check it on the real recordings** (the MAK is read from the environment and never printed):
+
+```powershell
+cd D:\pytivo\tivodesk
+$env:TIVO_MAK = '<your MAK>'
+go run ./cmd/tivodesk-cli decrypt -check "D:\tivo-test\*.tivo"
+```
+
+Each recording is written beside the original as `.ts`. A good result shows the video and audio streams ffmpeg found and few or no error lines; a wrong decryption shows thousands.
+
 **Where the code is:**
 
 | Path | What |
@@ -349,7 +380,8 @@ Development aids: `tivodesk-cli faketivo [-n 684] [-mb 30] [-delay 15ms]` runs a
 | `tivodesk/internal/store` | SQLite file beside the settings (`tivodesk.db`): the download queue and each TiVo's saved list. |
 | `tivodesk/internal/core/transfers.go` | The download queue and its workers. |
 | `tivodesk/internal/togo/faketivo` | A pretend TiVo for tests and for trying the app. |
-| `tivodesk/cmd/tivodesk-cli` | `discover`, `npl`, `download` and `faketivo` commands. |
+| `tivodesk/internal/tivocrypt/decrypt` | Stream decryption: transport and program streams. |
+| `tivodesk/cmd/tivodesk-cli` | `discover`, `npl`, `download`, `decrypt` and `faketivo` commands. |
 
 ## Risks
 
