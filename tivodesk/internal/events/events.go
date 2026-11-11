@@ -9,6 +9,16 @@ const (
 	ConfigChanged = "config.changed" // data: nil
 	MAKChanged    = "mak.changed"    // data: bool, whether a MAK is now stored
 	LogEntry      = "log.entry"      // data: logx.Entry
+	TiVosChanged  = "tivos.changed"  // data: nil
+	// NowPlayingChanged reports progress on one TiVo's list.
+	// data: core.NowPlayingStatus
+	NowPlayingChanged = "nowplaying.changed"
+	// TransfersChanged says the list of downloads, or the state of one,
+	// has changed. data: nil
+	TransfersChanged = "transfers.changed"
+	// TransferProgress reports on the download under way, about twice a
+	// second. data: core.TransferProgress
+	TransferProgress = "transfer.progress"
 )
 
 // Event is one message on the bus.

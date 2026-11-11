@@ -38,11 +38,88 @@ export interface LogEntry {
     message: string
 }
 
+export interface TiVo {
+    tsn: string
+    name: string
+    address: string
+    port: number
+    platform: string
+    swVersion: string
+    online: boolean
+    lastSeen: string
+}
+
+export interface Recording {
+    id: string
+    title: string
+    episodeTitle: string
+    description: string
+    seriesId: string
+    programId: string
+    episodeNumber: string
+    captured: string
+    durationMs: number
+    size: number
+    channel: string
+    station: string
+    hd: boolean
+    inProgress: boolean
+    copyProtected: boolean
+    status: 'normal' | 'protected' | 'expiring' | 'expired' | 'kuid' | 'suggestion' | 'inprogress'
+    tvRating: string
+    mpaaRating: string
+    contentUrl: string
+    detailsUrl: string
+}
+
+export interface NowPlayingStatus {
+    tsn: string
+    loading: boolean
+    loaded: number
+    total: number
+    error: string
+    fetched: string
+    unchanged: boolean
+}
+
+export interface NowPlaying extends NowPlayingStatus {
+    recordings: Recording[]
+}
+
+export interface Transfer {
+    id: number
+    tsn: string
+    tivoName: string
+    recording: Recording
+    ts: boolean
+    state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+    error: string
+    path: string
+    bytes: number
+    syncLosses: number
+    attempts: number
+    created: string
+    started: string
+    finished: string
+    rate: number
+}
+
+export interface TransferProgress {
+    id: number
+    bytes: number
+    rate: number
+    syncLosses: number
+}
+
 // Topics the engine publishes; they match internal/events.
 export const Topic = {
     configChanged: 'config.changed',
     makChanged: 'mak.changed',
     logEntry: 'log.entry',
+    tivosChanged: 'tivos.changed',
+    nowPlayingChanged: 'nowplaying.changed',
+    transfersChanged: 'transfers.changed',
+    transferProgress: 'transfer.progress',
 } as const
 
 // The generated bindings type maps loosely, so results are cast to the
@@ -57,6 +134,15 @@ export const api = {
     clearMAK: () => Go.ClearMAK(),
     previewImport: (path: string) => Go.PreviewImport(path) as unknown as Promise<ImportPreview>,
     applyImport: (path: string) => Go.ApplyImport(path) as unknown as Promise<ImportPreview>,
+    tivos: () => Go.GetTiVos() as unknown as Promise<TiVo[]>,
+    nowPlaying: (tsn: string) => Go.GetNowPlaying(tsn) as unknown as Promise<NowPlaying>,
+    refreshNowPlaying: (tsn: string) => Go.RefreshNowPlaying(tsn),
+    transfers: () => Go.GetTransfers() as unknown as Promise<Transfer[]>,
+    queueDownloads: (tsn: string, ids: string[]) => Go.QueueDownloads(tsn, ids),
+    cancelTransfer: (id: number) => Go.CancelTransfer(id),
+    retryTransfer: (id: number) => Go.RetryTransfer(id),
+    clearTransfers: () => Go.ClearTransfers(),
+    showTransfer: (id: number) => Go.ShowTransfer(id),
     logs: () => Go.GetLogs() as unknown as Promise<LogEntry[]>,
     chooseImportFile: () => Go.ChooseImportFile(),
     chooseFolder: (title: string) => Go.ChooseFolder(title),

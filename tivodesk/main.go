@@ -8,8 +8,11 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
@@ -19,8 +22,10 @@ import (
 
 	"tivodesk/internal/config"
 	"tivodesk/internal/core"
+	"tivodesk/internal/discovery"
 	"tivodesk/internal/logx"
 	"tivodesk/internal/secrets"
+	"tivodesk/internal/tivo"
 )
 
 //go:embed all:frontend/dist
@@ -71,6 +76,23 @@ func startTray(ctx context.Context) (stop func()) {
 	return stop
 }
 
+// addExtraTiVo lists a TiVo given as "Name=host:port". It is a development
+// aid; a malformed value is ignored.
+func addExtraTiVo(engine *core.Engine, spec string) {
+	name, addr, ok := strings.Cut(spec, "=")
+	if !ok {
+		return
+	}
+	host, portText, err := net.SplitHostPort(addr)
+	port, convErr := strconv.Atoi(portText)
+	if err != nil || convErr != nil {
+		return
+	}
+	engine.Registry().Seen(tivo.Box{
+		TSN: "FAKE" + portText, Name: name, Address: host, Port: port, Platform: "tcd/Pretend",
+	})
+}
+
 // fatal reports a startup failure in a dialog, because a windowed program
 // has no console to print to.
 func fatal(title, message string) {
@@ -96,6 +118,10 @@ func main() {
 	//   TIVODESK_CONFIG   path of the settings file to use
 	//   TIVODESK_SECRETS  "memory" keeps keys in memory instead of in
 	//                     Windows Credential Manager
+	//   TIVODESK_DISCOVERY  "off" stops the search for real TiVos, so that
+	//                     a test key is never sent to one
+	//   TIVODESK_EXTRA_TIVO  "Name=host:port" lists a TiVo that discovery
+	//                     cannot find, such as tivodesk-cli's pretend one
 	configPath := os.Getenv("TIVODESK_CONFIG")
 	if configPath == "" {
 		var err error
@@ -115,12 +141,17 @@ func main() {
 	}
 	log := logx.New(2000, logOut)
 
-	engine, err := core.New(core.Options{ConfigPath: configPath, Secrets: store, Log: log})
+	opts := core.Options{ConfigPath: configPath, Secrets: store, Log: log, Discover: discovery.Browse}
+	if os.Getenv("TIVODESK_DISCOVERY") == "off" {
+		opts.Discover = nil
+	}
+	engine, err := core.New(opts)
 	if err != nil {
 		fatal("TivoDesk cannot start", fmt.Sprintf(
-			"The settings file could not be read:\n\n%v\n\nFix or remove the file and start TivoDesk again.", err))
+			"The settings or the download queue could not be opened:\n\n%v\n\nFix or remove the file named above and start TivoDesk again.", err))
 	}
 	defer engine.Close()
+	addExtraTiVo(engine, os.Getenv("TIVODESK_EXTRA_TIVO"))
 
 	app := NewApp(engine)
 	var stopTray func()

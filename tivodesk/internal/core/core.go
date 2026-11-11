@@ -4,9 +4,11 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"runtime"
 	"sync"
 
@@ -15,6 +17,8 @@ import (
 	"tivodesk/internal/logx"
 	"tivodesk/internal/pytivoimport"
 	"tivodesk/internal/secrets"
+	"tivodesk/internal/store"
+	"tivodesk/internal/tivo"
 )
 
 // Version is the application version shown in the UI.
@@ -35,6 +39,16 @@ type API interface {
 
 	PreviewImport(path string) (*ImportPreview, error)
 	ApplyImport(path string) (*ImportPreview, error)
+
+	TiVos() []tivo.Box
+	NowPlaying(tsn string) NowPlaying
+	RefreshNowPlaying(tsn string) error
+
+	Transfers() []store.Job
+	QueueDownloads(tsn string, ids []string, format string) (int, error)
+	CancelTransfer(id int64) error
+	RetryTransfer(id int64) error
+	ClearTransfers() int
 
 	Logs() []logx.Entry
 	Events() *events.Bus
@@ -61,9 +75,17 @@ var ErrInvalidMAK = errors.New("the Media Access Key must be exactly 10 digits")
 
 // Options configure an Engine.
 type Options struct {
-	ConfigPath string        // where the configuration is stored
-	Secrets    secrets.Store // where keys are stored
-	Log        *logx.Log     // optional; one is created if nil
+	ConfigPath string // where the configuration is stored
+	// DataPath is where the download queue and saved lists are kept. If
+	// empty, it is "tivodesk.db" beside the configuration.
+	DataPath string
+	Secrets  secrets.Store // where keys are stored
+	Log      *logx.Log     // optional; one is created if nil
+
+	// Discover finds TiVos and records them in the registry until its
+	// context is cancelled. It is discovery.Browse in the app, and nil in
+	// tests, which add TiVos by hand.
+	Discover func(ctx context.Context, reg *tivo.Registry, log *slog.Logger)
 }
 
 // Engine is the running application, minus any window.
@@ -76,6 +98,26 @@ type Engine struct {
 
 	mu  sync.RWMutex
 	cfg *config.Config
+
+	tivos tivo.Registry
+
+	// Background work stops when stop is called; done waits for it.
+	ctx  context.Context
+	stop context.CancelFunc
+	done sync.WaitGroup
+
+	nplMu sync.Mutex
+	npl   map[string]*nowPlaying // by TSN
+
+	store *store.Store
+
+	clientMu sync.Mutex
+	clients  map[string]*cachedClient // by TSN
+
+	jobMu   sync.Mutex
+	jobs    []*store.Job                      // the download queue, oldest first
+	workers map[string]bool                   // TiVos with a download worker running
+	cancels map[int64]context.CancelCauseFunc // stops the download under way, by job
 }
 
 var _ API = (*Engine)(nil)
@@ -121,6 +163,32 @@ func New(opts Options) (*Engine, error) {
 		}
 	}
 
+	if opts.DataPath == "" {
+		opts.DataPath = filepath.Join(filepath.Dir(e.path), "tivodesk.db")
+	}
+	if e.store, err = store.Open(opts.DataPath); err != nil {
+		return nil, err
+	}
+
+	e.ctx, e.stop = context.WithCancel(context.Background())
+	e.npl = map[string]*nowPlaying{}
+	e.clients = map[string]*cachedClient{}
+	e.workers = map[string]bool{}
+	e.cancels = map[int64]context.CancelCauseFunc{}
+	e.loadListings()
+	e.loadJobs()
+	e.tivos.OnChange(func() {
+		e.bus.Publish(events.TiVosChanged, nil)
+		e.kickAll() // a TiVo that just appeared may have downloads waiting
+	})
+	if opts.Discover != nil {
+		e.done.Add(1)
+		go func() {
+			defer e.done.Done()
+			opts.Discover(e.ctx, &e.tivos, e.logger)
+		}()
+	}
+
 	e.logger.Info("TivoDesk engine ready", "version", Version, "config", e.path,
 		"shares", len(cfg.Share), "mak", e.HasMAK())
 	for _, p := range cfg.Validate() {
@@ -139,6 +207,11 @@ func (e *Engine) applyLogLevel(c *config.Config) {
 
 // Close shuts the engine down.
 func (e *Engine) Close() {
+	e.stop()
+	e.done.Wait()
+	if err := e.store.Close(); err != nil {
+		e.logger.Warn("could not close the database", "err", err)
+	}
 	e.logger.Info("TivoDesk engine stopped")
 }
 
@@ -213,6 +286,7 @@ func (e *Engine) SetMAK(mak string) error {
 	}
 	e.logger.Info("Media Access Key stored")
 	e.bus.Publish(events.MAKChanged, true)
+	e.kickAll() // downloads may have been waiting for the key
 	return nil
 }
 

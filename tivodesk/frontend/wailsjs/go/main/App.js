@@ -6,6 +6,10 @@ export function ApplyImport(arg1) {
   return window['go']['main']['App']['ApplyImport'](arg1);
 }
 
+export function CancelTransfer(arg1) {
+  return window['go']['main']['App']['CancelTransfer'](arg1);
+}
+
 export function ChooseFile(arg1) {
   return window['go']['main']['App']['ChooseFile'](arg1);
 }
@@ -22,6 +26,10 @@ export function ClearMAK() {
   return window['go']['main']['App']['ClearMAK']();
 }
 
+export function ClearTransfers() {
+  return window['go']['main']['App']['ClearTransfers']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -34,8 +42,20 @@ export function GetLogs() {
   return window['go']['main']['App']['GetLogs']();
 }
 
+export function GetNowPlaying(arg1) {
+  return window['go']['main']['App']['GetNowPlaying'](arg1);
+}
+
 export function GetProblems() {
   return window['go']['main']['App']['GetProblems']();
+}
+
+export function GetTiVos() {
+  return window['go']['main']['App']['GetTiVos']();
+}
+
+export function GetTransfers() {
+  return window['go']['main']['App']['GetTransfers']();
 }
 
 export function HasMAK() {
@@ -46,10 +66,26 @@ export function PreviewImport(arg1) {
   return window['go']['main']['App']['PreviewImport'](arg1);
 }
 
+export function QueueDownloads(arg1, arg2) {
+  return window['go']['main']['App']['QueueDownloads'](arg1, arg2);
+}
+
+export function RefreshNowPlaying(arg1) {
+  return window['go']['main']['App']['RefreshNowPlaying'](arg1);
+}
+
+export function RetryTransfer(arg1) {
+  return window['go']['main']['App']['RetryTransfer'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
 export function SetMAK(arg1) {
   return window['go']['main']['App']['SetMAK'](arg1);
+}
+
+export function ShowTransfer(arg1) {
+  return window['go']['main']['App']['ShowTransfer'](arg1);
 }

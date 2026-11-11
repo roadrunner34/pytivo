@@ -1,8 +1,8 @@
 import {AppState} from '../App'
 
-export default function Dashboard({config, hasMAK, info, problems, go}: AppState) {
+export default function Dashboard({config, hasMAK, info, problems, tivos, go}: AppState) {
     const shares = Object.keys(config.share).length
-    const tivos = Object.keys(config.tivo).length
+    const online = tivos.filter(t => t.online).length
     const firstRun = shares === 0 && !hasMAK
 
     return (
@@ -32,10 +32,10 @@ export default function Dashboard({config, hasMAK, info, problems, go}: AppState
                     <span className={'tile-value ' + (hasMAK ? 'good' : 'warn')}>{hasMAK ? 'Stored' : 'Missing'}</span>
                     <span className="tile-label">Media Access Key</span>
                 </button>
-                <div className="tile">
-                    <span className="tile-value">{tivos}</span>
-                    <span className="tile-label">{tivos === 1 ? 'TiVo with its own settings' : 'TiVos with their own settings'}</span>
-                </div>
+                <button className="tile" onClick={() => go('tivos')}>
+                    <span className="tile-value">{online}</span>
+                    <span className="tile-label">{online === 1 ? 'TiVo online' : 'TiVos online'}</span>
+                </button>
             </div>
 
             {!hasMAK && !firstRun && (
@@ -72,7 +72,8 @@ export default function Dashboard({config, hasMAK, info, problems, go}: AppState
                     <dd>{config.server.port || '9032'}</dd>
                 </dl>
                 <p className="muted">
-                    Discovery, Now Playing and transfers arrive in the next phases. This build manages settings only.
+                    This build finds your TiVos and lists their recordings. Downloads and serving media to TiVos
+                    arrive in the next phases.
                 </p>
             </section>
         </>

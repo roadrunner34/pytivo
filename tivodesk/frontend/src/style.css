@@ -65,6 +65,7 @@ code { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .version { margin-top: auto; padding: 0 10px; font-size: 12px; color: var(--muted); }
 .content { flex: 1; min-width: 0; overflow: auto; padding: 22px 28px; }
 .content > * { max-width: 860px; }
+.content > .wide { max-width: 1100px; }
 
 /* Controls */
 button, input, select { font: inherit; color: inherit; }
@@ -147,3 +148,85 @@ table.list td.actions button + button { margin-left: 6px; }
 .log.warn .level { color: var(--warn); }
 .log.error .level, .log.error .message { color: var(--error); }
 .log.debug { color: var(--muted); }
+
+/* TiVos */
+.sub { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+td.mono { font-family: var(--mono); font-size: 12.5px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.on { background: var(--good); }
+.dot.off { background: var(--muted); }
+
+/* Now Playing */
+.np-page { display: flex; flex-direction: column; height: 100%; max-width: 1100px; }
+.np-tools { margin-bottom: 10px; }
+.np-body { flex: 1; min-height: 0; display: flex; gap: 12px; }
+.np-list {
+    flex: 1; min-width: 0; overflow: auto; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px;
+}
+.np-row {
+    position: absolute; top: 0; left: 0; width: 100%;
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+    background: none; text-align: left;
+}
+.np-row.group { font-weight: 600; padding-left: 0; }
+/* A group row holds two buttons: the title, which opens it, and Download all. */
+.np-main {
+    flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 10px;
+    padding: 0 0 0 12px; border: 0; border-radius: 0; background: none; text-align: left; font-weight: 600;
+}
+.np-get { flex: none; padding: 1px 8px; font-size: 12px; font-weight: 400; opacity: 0; }
+.np-row.group:hover .np-get, .np-get:focus-visible { opacity: 1; }
+.np-get:disabled { opacity: 0 !important; }
+.mark { flex: none; width: 16px; text-align: center; font-weight: 700; }
+.mark.queued, .mark.running { color: var(--accent); }
+.mark.done { color: var(--good); }
+.mark.failed { color: var(--error); }
+.np-download { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.np-download p { margin: 0 0 8px; }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+.np-row.nested { padding-left: 34px; }
+.np-row.selected { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); }
+.np-row .chev { width: 14px; flex: none; color: var(--muted); }
+.np-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-date { flex: none; width: 96px; text-align: right; color: var(--muted); font-weight: 400; }
+.np-size { flex: none; width: 64px; text-align: right; color: var(--muted); font-weight: 400; }
+.count {
+    flex: none; min-width: 22px; padding: 0 6px; border-radius: 999px; text-align: center;
+    background: var(--hover); font-size: 12px; font-weight: 600;
+}
+.badge {
+    flex: none; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border);
+    font-size: 11.5px; font-weight: 400; white-space: nowrap;
+}
+.badge.protected, .badge.expired { color: var(--error); }
+.badge.expiring, .badge.inprogress { color: var(--warn); }
+.badge.suggestion { color: var(--muted); }
+.badge.kuid { color: var(--good); }
+.np-none { padding: 24px; text-align: center; }
+.np-details {
+    flex: none; width: 300px; overflow: auto; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+}
+.np-details .heading button { padding: 2px 8px; }
+.np-foot { padding-top: 8px; font-size: 12.5px; }
+
+.progress {
+    position: relative; height: 22px; margin-bottom: 10px; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.progress .bar { height: 100%; background: var(--accent); opacity: 0.35; transition: width 0.2s; }
+.progress span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; }
+
+/* Transfers */
+button.nav { display: flex; align-items: center; justify-content: space-between; }
+table.transfers td { vertical-align: top; }
+table.transfers td.status { width: 280px; }
+.sub.plain { font-family: inherit; }
+.progress.small { height: 18px; margin-bottom: 3px; }
+.state.done { color: var(--good); }
+.state.failed { color: var(--error); }
+.state.cancelled { color: var(--muted); }
+.sub.error { color: var(--error); }
+.sub.warn { color: var(--warn); }

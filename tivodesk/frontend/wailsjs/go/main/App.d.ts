@@ -3,8 +3,12 @@
 import {core} from '../models';
 import {config} from '../models';
 import {logx} from '../models';
+import {tivo} from '../models';
+import {store} from '../models';
 
 export function ApplyImport(arg1:string):Promise<core.ImportPreview>;
+
+export function CancelTransfer(arg1:number):Promise<void>;
 
 export function ChooseFile(arg1:string):Promise<string>;
 
@@ -14,18 +18,34 @@ export function ChooseImportFile():Promise<string>;
 
 export function ClearMAK():Promise<void>;
 
+export function ClearTransfers():Promise<number>;
+
 export function GetConfig():Promise<config.Config>;
 
 export function GetInfo():Promise<core.Info>;
 
 export function GetLogs():Promise<Array<logx.Entry>>;
 
+export function GetNowPlaying(arg1:string):Promise<core.NowPlaying>;
+
 export function GetProblems():Promise<Array<config.Problem>>;
+
+export function GetTiVos():Promise<Array<tivo.Box>>;
+
+export function GetTransfers():Promise<Array<store.Job>>;
 
 export function HasMAK():Promise<boolean>;
 
 export function PreviewImport(arg1:string):Promise<core.ImportPreview>;
 
+export function QueueDownloads(arg1:string,arg2:Array<string>):Promise<number>;
+
+export function RefreshNowPlaying(arg1:string):Promise<void>;
+
+export function RetryTransfer(arg1:number):Promise<void>;
+
 export function SaveConfig(arg1:config.Config):Promise<Array<config.Problem>>;
 
 export function SetMAK(arg1:string):Promise<void>;
+
+export function ShowTransfer(arg1:number):Promise<void>;

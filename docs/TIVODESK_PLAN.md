@@ -3,7 +3,7 @@
 **A Go + Wails desktop app that fully replaces pyTivo: fast, MAK-based, no Java, no shared code.**
 
 > [!NOTE]
-> **Status: P0 Foundation is built on branch `tivodesk`.** The app starts, manages settings, imports `pyTivo.conf` and stores the MAK; see [P0 results](#p0-results-2026-11-10). It does not talk to TiVos yet. One S0 item is still open: decryption fixtures.
+> **Status: P1 is done on branch `tivodesk`.** The app finds TiVos, lists their recordings and downloads them, still encrypted, and all three are confirmed on both real TiVos; see [P1 progress](#p1-progress-2026-11-11). The first decryption fixtures exist. P2, native decryption, is next.
 > Drafted 2026-10-24, reviewed and revised 2026-11-10.
 > The review checked every claim below against the pyTivo source at commit `2ed403c`, the local toolchain, and current Go and Wails releases. What changed is listed in the [review log](#review-log-2026-11-10).
 
@@ -13,7 +13,7 @@
 | **Stack** | Go engine, Wails v2 shell (WebView2), React + TypeScript + Vite UI, SQLite, external ffmpeg |
 | **Where** | New top-level folder `tivodesk/` (its own Go module) on a new branch `tivodesk` |
 | **pyTivo's role** | Reference only, plus the oracle for golden tests. It stays in the repo untouched |
-| **Next step** | P1: discovery, Now Playing and raw downloads. Decryption fixtures (S0-2) can be collected alongside it |
+| **Next step** | P2: native decryption, starting with transport streams, tested on the two recordings in `D:	ivo-test` |
 
 **Contents:** [Why](#why-replace-pytivo) · [Decisions](#decisions) · [Architecture](#architecture) · [Legacy TLS](#legacy-tls-togo) · [UI](#ui) · [Roadmap](#roadmap) · [Next steps](#next-steps) · [Risks](#risks) · [Verification](#verification) · [Review log](#review-log-2026-11-10)
 
@@ -28,7 +28,7 @@ pyTivo now runs on Python 3, but its architecture is still slow. Each cost below
 | Startup waits up to 30 s for the first TiVo to answer mDNS | `beacon.py` `ZCBroadcast.scan` | Continuous async browse; the app is usable immediately |
 | A TiVo's first request blocks up to 5 s on a name lookup | `httpserver.py` `do_GET` → `beacon.py` `get_name` | Async, cached `get_name` |
 | 503 retries loop forever, 5 s apart | `togo.py` `tivo_open` | Capped exponential backoff |
-| Now Playing is paged synchronously in the request thread | `togo.py` `GetShowsList` / `NPL` | Cache keyed by `LastChangeDate`; pages streamed to the UI |
+| Now Playing is paged synchronously in the request thread | `togo.py` `GetShowsList` / `NPL` | Cache keyed by `LastChangeDate`; the list saved between runs |
 | ffmpeg probes run inline in the request thread; the cache is in-memory only (1,000 entries) and is lost on restart | `transcode.py` `video_info` | Persistent SQLite index filled by a background ffprobe pool |
 | TS sync bytes are checked packet by packet in Python, with an optional sleep per chunk | `togo.py` `get_tivo_file` | Native validation inside the streaming decrypt pipeline |
 | Stream decryption shells out to `tivolibre.exe`, which needs a Java runtime | `transcode.py` `transcode` | Native Go Turing, PS and TS decoders |
@@ -115,7 +115,7 @@ flowchart TB
 | `library` | SQLite index (modernc.org/sqlite), fsnotify watcher, ffprobe worker pool, so browsing never probes inline | — |
 | `media/{probe,transcode,meta,image}` | ffprobe JSON normalized to pyTivo's `vInfo`; compatibility rules and ffmpeg argument builder; ring buffer for resume; metadata formats (.txt, .nfo, MP4, WTV) | `plugins/video/transcode.py`; `metadata.py` |
 | `tivocrypt/{turing,tivofile,ps,ts}` | Native Turing cipher; header and metadata decrypt; PS and TS stream decoders as streaming `io.Reader`s | `turing.py`; `metadata.py` `_tdcat_py`, `from_tivo`; algorithm from tivolibre (BSD-2) and tivodecode |
-| `togo` | Per-TiVo `http.Client`: legacy TLS, Digest/Basic (`tivo`/MAK), `sid` cookie, TSN header; NPL cached by `LastChangeDate`, pages streamed to the UI; capped exponential backoff on 503 | `plugins/togo/togo.py`: `tivo_ssl_context`, `tivo_open`, `GetShowsList`, `get_out_file`, `get_tivo_file` |
+| `togo` | Per-TiVo `http.Client`: legacy TLS, Digest/Basic (`tivo`/MAK), `sid` cookie, TSN header; NPL cached by `LastChangeDate`, the list saved between runs; capped exponential backoff on 503 | `plugins/togo/togo.py`: `tivo_ssl_context`, `tivo_open`, `GetShowsList`, `get_out_file`, `get_tivo_file` |
 | `jobs` | Download queue persisted in SQLite; one worker per TiVo; pipeline download → decrypt → TS validation → write → `.txt` details → post-process hook; prevent sleep | `togo.py`: `ToGo`, `process_queue`, `get_tivo_file`, `post_process_file` |
 | `rpc` | MRPC/2 client over TLS with a client cert (.p12 via go-pkcs12, or PEM); request multiplexing by RpcId; keepalive and reconnect | kmttg `rpc/Remote.java` (external) |
 | `events`, `logx`, `power` | Pub/sub to the UI (progress throttled to about 4 Hz); slog plus a ring buffer for the log viewer, with the MAK masked; `SetThreadExecutionState` | — |
@@ -126,7 +126,7 @@ References are by function name rather than line number, because line numbers dr
 
 | Area | Library |
 |---|---|
-| mDNS | `brutella/dnssd` |
+| mDNS | `libp2p/zeroconf/v2` (`brutella/dnssd` finds nothing on this PC; see P1 progress) |
 | Digest auth | `icholy/digest`, or a small in-house implementation |
 | Config and import | `go-toml/v2`, `ini.v1` |
 | Folder watching | `fsnotify` |
@@ -268,6 +268,67 @@ Decisions made while building:
 - **`allowed_clients` is ported** in `config`; the HMO server will enforce it in P3.
 - **Two environment variables for development:** `TIVODESK_CONFIG` picks the settings file and `TIVODESK_SECRETS=memory` keeps keys out of Credential Manager.
 
+### P1 progress (2026-11-11)
+
+Discovery, Now Playing and raw downloads are built and confirmed on both real TiVos.
+
+| P1 piece | Status |
+|---|---|
+| mDNS browse | **Done, and confirmed on the real network.** Both TiVos are found in about 0.2 s. Browsing repeats in 30-second cycles; a box silent for 100 s is shown as offline. |
+| ToGo client | **Done.** Legacy TLS, digest auth with the challenge reused, the `sid` cookie, and 503 backoff of 1, 2, 4, 8, 15, 15 s before giving up. |
+| Now Playing | **Done, and confirmed on both real TiVos** (timings below). Pages of 50 are fetched three at a time. A refresh first asks whether the list changed; if not, it costs one request. |
+| Raw downloads | **Done, and confirmed on both real TiVos** (results below). Transport stream where the TiVo offers it, program stream otherwise. Damaged packets are counted. A download that goes silent for 2 minutes is abandoned. |
+| Download queue | **Done.** Kept in SQLite, one worker per TiVo, cancel and retry. A download interrupted by closing the app starts again on the next launch, once its TiVo is found. |
+| Naming and `.txt` details | **Done.** TiVo Desktop style names, or sortable names with `togo_sortable_names`. The `.txt` file is in pyTivo's format, with cast and genres from the TiVo's details page. |
+| List kept across restarts | **Done.** Each TiVo's list is saved in SQLite and shown at once on the next launch; the page then checks it with the TiVo. |
+| UI | **Done.** TiVos, Now Playing (virtualized list grouped by title, search, sort, details panel, Download and Download all) and Transfers (progress, speed, time left, cancel, retry, show in folder). |
+
+**Now Playing on the real TiVos** (2026-11-11, `tivodesk-cli npl`):
+
+| TiVo | Recordings | Full fetch | Unchanged check |
+|---|---|---|---|
+| Family Room (Edge) | 680 in 75 titles, 1,321 GB | 5.5 s | 56 ms |
+| Paella Tivo (Roamio) | 584 in 11 titles, 1,430 GB | 7.2 s | 141 ms |
+
+**Downloads from the real TiVos** (2026-11-11, `tivodesk-cli download`, transport stream):
+
+| TiVo | Recording | Size | Speed | Damaged packets |
+|---|---|---|---|---|
+| Family Room (Edge) | RuPaul's Drag Race, "Season 18 Sneak Peek" | 224 MB | 21.7 MB/s | 0 |
+| Paella Tivo (Roamio) | NOVA, "The Battle to Breathe" | 32 MB | 7.5 MB/s | 0 |
+
+Both files have a valid `.TiVo` header with the transport-stream flag set, the video starts on a packet boundary, and the `.txt` files hold the full details (19 and 56 lines). They are in `D:	ivo-test`, outside the repository, and are the first fixtures for P2 (S0-2). Program-stream fixtures are still to collect, with `-ps`.
+
+Both TiVos accept three page requests at once. A full fetch takes 5 to 7 seconds and happens once; after that the saved list is shown at once and confirmed in about a tenth of a second. So pages are not streamed to the UI: a progress bar on the first fetch is enough. That settles the open question about streaming.
+
+What was checked: 12 packages of tests pass. The pretend TiVo verifies digest responses properly, returns short pages, expires nonces, answers "busy", sends one recording at a time, and can damage, cut short or slow a download. The app was run in dev mode against it: six downloads queued from Now Playing, five finished with their `.txt` files and one was cancelled.
+
+Findings:
+
+- **`brutella/dnssd` does not work on this PC.** It found no TiVos in 12 s, on a machine with Wi-Fi, a Hyper-V switch and Tailscale. `libp2p/zeroconf/v2` found both at once. This is risk 6 (multi-homed Windows) in practice.
+- **The mDNS library reports no departures**, which is why browsing runs in cycles.
+- **A TiVo's download links are plain HTTP on port 80.** The client tries the link as given and, if that fails, the same path over HTTPS. Real downloads work; the tool does not yet say which of the two links served them.
+- **File dates use local time.** pyTivo names files by the UTC date, which puts an evening recording on the next day.
+
+Not built, and left for later:
+
+- `togo_ts_error_mode = best` (keep the least damaged of several tries). `ignore` and `reject` with `togo_ts_max_retries` work; `best` is treated as `ignore`.
+- Throttling (`togo_download_speed`) and keeping the PC awake during downloads.
+- Choosing program stream from the UI. The CLI has `-ps`.
+
+**To check downloads on a real TiVo** (the MAK is read from the environment and never printed):
+
+```powershell
+cd D:\pytivo\tivodesk
+$env:TIVO_MAK = '<your MAK>'
+go run ./cmd/tivodesk-cli download -tivo "Family Room" -dir D:\tivo-test
+go run ./cmd/tivodesk-cli download -tivo "Paella Tivo" -dir D:\tivo-test
+```
+
+Each picks the smallest recording that is not copy protected (add `-match "part of a title"` to choose one, and `-ps` for a program stream), prints its speed and the number of damaged packets, and saves the `.tivo` file with its `.txt`. These files are the fixtures P2 needs.
+
+Development aids: `tivodesk-cli faketivo [-n 684] [-mb 30] [-delay 15ms]` runs a pretend TiVo; `TIVODESK_EXTRA_TIVO=Name=host:port` lists it in the app; `TIVODESK_DISCOVERY=off` stops the search for real TiVos, so that a test key is never sent to one.
+
 **Where the code is:**
 
 | Path | What |
@@ -283,6 +344,12 @@ Decisions made while building:
 | `tivodesk/internal/pytivoimport` | `pyTivo.conf` importer. |
 | `tivodesk/internal/secrets`, `events`, `logx` | Credential store, event bus, and the log with secret masking. |
 | `tivodesk/frontend` | React + TypeScript UI. |
+| `tivodesk/internal/discovery`, `tivo` | mDNS browsing and the list of TiVos found. |
+| `tivodesk/internal/togo` | Client for a TiVo's web server: TLS, digest auth, Now Playing, downloads, details, file naming. |
+| `tivodesk/internal/store` | SQLite file beside the settings (`tivodesk.db`): the download queue and each TiVo's saved list. |
+| `tivodesk/internal/core/transfers.go` | The download queue and its workers. |
+| `tivodesk/internal/togo/faketivo` | A pretend TiVo for tests and for trying the app. |
+| `tivodesk/cmd/tivodesk-cli` | `discover`, `npl`, `download` and `faketivo` commands. |
 
 ## Risks
 

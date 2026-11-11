@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -9,6 +12,8 @@ import (
 	"tivodesk/internal/core"
 	"tivodesk/internal/events"
 	"tivodesk/internal/logx"
+	"tivodesk/internal/store"
+	"tivodesk/internal/tivo"
 )
 
 // App is the bridge between the window and the engine. Its exported methods
@@ -78,6 +83,57 @@ func (a *App) PreviewImport(path string) (*core.ImportPreview, error) {
 // ApplyImport replaces the settings with those in a pyTivo.conf.
 func (a *App) ApplyImport(path string) (*core.ImportPreview, error) {
 	return a.engine.ApplyImport(path)
+}
+
+// GetTiVos returns the TiVos found on the network.
+func (a *App) GetTiVos() []tivo.Box { return a.engine.TiVos() }
+
+// GetNowPlaying returns the recordings held for a TiVo and how fresh
+// they are. It does not contact the TiVo.
+func (a *App) GetNowPlaying(tsn string) core.NowPlaying { return a.engine.NowPlaying(tsn) }
+
+// RefreshNowPlaying starts reading a TiVo's list in the background.
+func (a *App) RefreshNowPlaying(tsn string) error { return a.engine.RefreshNowPlaying(tsn) }
+
+// GetTransfers returns every download, oldest first.
+func (a *App) GetTransfers() []store.Job {
+	if jobs := a.engine.Transfers(); jobs != nil {
+		return jobs
+	}
+	return []store.Job{}
+}
+
+// QueueDownloads adds recordings from a TiVo's list to the download queue
+// and returns how many were added.
+func (a *App) QueueDownloads(tsn string, ids []string) (int, error) {
+	return a.engine.QueueDownloads(tsn, ids, "")
+}
+
+// CancelTransfer stops a download that is waiting or under way.
+func (a *App) CancelTransfer(id int64) error { return a.engine.CancelTransfer(id) }
+
+// RetryTransfer puts a failed or cancelled download back in the queue.
+func (a *App) RetryTransfer(id int64) error { return a.engine.RetryTransfer(id) }
+
+// ClearTransfers removes finished downloads from the list, not from disk.
+func (a *App) ClearTransfers() int { return a.engine.ClearTransfers() }
+
+// ShowTransfer opens the folder holding a finished download, with the file
+// selected. It takes a transfer rather than a path so that the UI cannot
+// be made to open anything else.
+func (a *App) ShowTransfer(id int64) error {
+	for _, j := range a.engine.Transfers() {
+		if j.ID != id {
+			continue
+		}
+		if _, err := os.Stat(j.Path); j.Path == "" || err != nil {
+			return errors.New("the file is no longer there")
+		}
+		// Explorer exits with a failure code even when it works, so its
+		// result says nothing.
+		return exec.Command("explorer.exe", "/select,", j.Path).Start()
+	}
+	return errors.New("that transfer is no longer in the list")
 }
 
 // GetLogs returns the recent log entries, oldest first.
