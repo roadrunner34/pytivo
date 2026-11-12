@@ -189,6 +189,7 @@ export namespace store {
 	    tivoName: string;
 	    recording: togo.Recording;
 	    ts: boolean;
+	    decrypt: boolean;
 	    state: string;
 	    error: string;
 	    path: string;
@@ -214,6 +215,7 @@ export namespace store {
 	        this.tivoName = source["tivoName"];
 	        this.recording = this.convertValues(source["recording"], togo.Recording);
 	        this.ts = source["ts"];
+	        this.decrypt = source["decrypt"];
 	        this.state = source["state"];
 	        this.error = source["error"];
 	        this.path = source["path"];

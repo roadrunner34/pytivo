@@ -179,7 +179,7 @@ func download(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	path := togo.FreePath(*dir, *pick, ts, false, time.Local)
+	path := togo.FreePath(*dir, *pick, ts, false, false, time.Local)
 	fmt.Printf("%s: %s %s\n  about %.0f MB, as a %s\n  to %s\n", box.Name, pick.Title, pick.EpisodeTitle,
 		float64(pick.Size)/1e6, map[bool]string{true: "transport stream", false: "program stream"}[ts], path)
 

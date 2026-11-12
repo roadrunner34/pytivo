@@ -32,6 +32,9 @@ type Job struct {
 	Recording togo.Recording `json:"recording"`
 	// TS is true for a transport stream, false for a program stream.
 	TS bool `json:"ts"`
+	// Decrypt is true if the recording is decrypted as it downloads, and
+	// saved as an ordinary video file rather than a .tivo file.
+	Decrypt bool `json:"decrypt"`
 
 	State string `json:"state"`
 	// Error is why the job failed, in words fit for the user.

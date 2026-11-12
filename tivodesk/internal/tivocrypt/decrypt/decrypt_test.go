@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"tivodesk/internal/tivocrypt/tivofile"
@@ -74,37 +73,6 @@ var (
 	slice     = []byte{0, 0, 1, 0x01, 0x12, 0x34}
 )
 
-func TestHeaderLengths(t *testing.T) {
-	join := func(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
-	filler := bytes.Repeat([]byte{0xAA}, 40)
-	for _, c := range []struct {
-		name string
-		buf  []byte
-		want []int
-	}{
-		{"video with every header", join(pesHeader, seqHeader, gopHeader, picHeader, slice, filler), []int{112, 96, 64, 61}},
-		{"PES header then a slice", join(pesHeader, slice, filler), []int{112}},
-		{"audio: PES header then data", join([]byte{0, 0, 1, 0xBD, 0, 0, 0x80, 0, 0}, []byte{0x0B, 0x77}, filler), []int{72}},
-		{"H.264: four-byte start code", join(pesHeader, []byte{0, 0, 0, 1, 9, 0x10}, filler), []int{120}},
-		{"no start code at all", filler, nil},
-		{"stuffing after the PES header", join(pesHeader, []byte{0xFF, 0xFF}, slice, filler), []int{128}},
-	} {
-		if got := headerLengths(c.buf); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
-		}
-	}
-	// A buffer that ends inside the headers must report at least its own
-	// length, so that the caller waits for more.
-	short := join(pesHeader, seqHeader[:6])
-	total := 0
-	for _, l := range headerLengths(short) {
-		total += l
-	}
-	if total/8 < len(short) {
-		t.Errorf("a cut-off header measured %d bytes of %d", total/8, len(short))
-	}
-}
-
 // tsPkt builds one transport-stream packet.
 func tsPkt(pid uint16, start, scrambled bool, counter int, payload []byte) []byte {
 	p := bytes.Repeat([]byte{0xFF}, tsSize)
@@ -144,12 +112,7 @@ func keyPacket(videoBlock, audioBlock int) []byte {
 // plainStream builds an unencrypted transport stream with the scrambling
 // bits set on the packets a TiVo would encrypt, and returns it with the
 // positions of those packets.
-//
-// A picture header ends part-way through a byte, and the reference counts
-// that last byte as encrypted. Once it is, the header no longer measures
-// the same, so a stream with picture headers cannot be put through twice.
-// withPictureHeaders leaves them out for tests that do that.
-func plainStream(withPictureHeaders bool) (stream []byte, scrambled []int) {
+func plainStream() (stream []byte, scrambled []int) {
 	add := func(p []byte) {
 		if p[3]&0xC0 != 0 {
 			scrambled = append(scrambled, len(stream))
@@ -179,13 +142,12 @@ func plainStream(withPictureHeaders bool) (stream []byte, scrambled []int) {
 			head = append(head, seqHeader...)
 			head = append(head, gopHeader...)
 		}
-		if withPictureHeaders {
-			head = append(head, picHeader...)
-		}
+		head = append(head, picHeader...)
 		head = append(head, slice...)
-		add(tsPkt(videoPID, true, true, counter, append(head, fill(tsSize-4-len(head), seed)...)))
+		// As in a real recording, the packet that starts a picture is
+		// left clear and only some of those after it are encrypted.
+		add(tsPkt(videoPID, true, false, counter, append(head, fill(tsSize-4-len(head), seed)...)))
 		for i := 1; i <= 6; i++ {
-			// As in a real recording, only some packets are encrypted.
 			add(tsPkt(videoPID, false, i%3 != 0, counter+i, fill(tsSize-4, seed+byte(i))))
 		}
 		counter += 7
@@ -212,25 +174,7 @@ func plainStream(withPictureHeaders bool) (stream []byte, scrambled []int) {
 func TestTransportStreamRoundTrip(t *testing.T) {
 	header := fileHeader(true)
 
-	// With every header present, the first video packet's headers stay in
-	// the clear and what follows the picture header does not.
-	{
-		plain, scrambled := plainStream(true)
-		var out bytes.Buffer
-		if _, err := Decrypt(bytes.NewReader(append(header, plain...)), &out, testMAK); err != nil {
-			t.Fatal(err)
-		}
-		enc, first := out.Bytes(), scrambled[0]
-		clear := len(pesHeader) + len(seqHeader) + len(gopHeader) + 7 // 61 bits of picture header
-		if !bytes.Equal(enc[first+4:first+4+clear], plain[first+4:first+4+clear]) {
-			t.Error("the headers of the first picture were altered")
-		}
-		if bytes.Equal(enc[first+4+clear:first+tsSize], plain[first+4+clear:first+tsSize]) {
-			t.Error("the data after the first picture's headers was not altered")
-		}
-	}
-
-	plain, scrambled := plainStream(false)
+	plain, scrambled := plainStream()
 
 	// Decrypting plain data encrypts it, since the cipher is an XOR. Do
 	// that, mark the same packets as scrambled again, and decrypt: the
@@ -285,8 +229,75 @@ func TestTransportStreamRoundTrip(t *testing.T) {
 	}
 }
 
+// The case tivodecode-ng gets wrong, taken from a real recording: a clear
+// sequence header fills one packet and ends with the start code of the
+// sequence extension; the next packet is scrambled, but begins with the
+// rest of that extension and a group-of-pictures header, in the clear.
+// Encryption starts after those fourteen bytes.
+func TestHeadersRunIntoScrambledPacket(t *testing.T) {
+	header := fileHeader(true)
+	first := append(append([]byte{}, pesHeader...), realSeqHeader...)
+	first = append(first, 0, 0, 1, 0xB5) // the extension's start code ends the packet
+	pad := tsSize - 4 - len(first)
+	if pad < 2 {
+		t.Fatalf("test packet does not fit: %d bytes of headers", len(first))
+	}
+	// An adaptation field of stuffing makes the headers end the packet.
+	p1 := make([]byte, 0, tsSize)
+	p1 = append(p1, 0x47, 0x40, videoPID, 0x30, byte(pad-1), 0x00)
+	p1 = append(p1, bytes.Repeat([]byte{0xFF}, pad-2)...)
+	p1 = append(p1, first...)
+
+	clear := []byte{0x14, 0x42, 0x00, 0x01, 0x00, 0x00, 0, 0, 1, 0xB8, 0xA2, 0xAC, 0xE1, 0x80}
+	secret := bytes.Repeat([]byte{0x5A, 0x33}, (tsSize-4-len(clear))/2)
+	p2 := tsPkt(videoPID, false, true, 1, append(append([]byte{}, clear...), secret...))
+	p3 := tsPkt(videoPID, false, true, 2, bytes.Repeat([]byte{0x77}, tsSize-4))
+
+	plain, _ := plainStream()
+	stream := append(append([]byte{}, plain[:3*tsSize]...), p1...) // tables and keys first
+	stream = append(stream, p2...)
+	stream = append(stream, p3...)
+
+	var out bytes.Buffer
+	stats, err := Decrypt(bytes.NewReader(append(header, stream...)), &out, testMAK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.Bytes()[4*tsSize:]
+	if !bytes.Equal(got[4:4+len(clear)], clear) {
+		t.Errorf("the clear headers at the start of the scrambled packet were altered: % x", got[4:4+len(clear)])
+	}
+	if bytes.Equal(got[4+len(clear):4+len(clear)+8], secret[:8]) {
+		t.Error("the data after the clear headers was not decrypted")
+	}
+	if stats.PartlyClear != 1 || stats.Decrypted != 2 {
+		t.Errorf("stats: %+v, want one partly clear packet of two decrypted", stats)
+	}
+
+	// The keystream must have been used for exactly the bytes after the
+	// headers: 170 in the first packet, then all 184 of the next.
+	keys := testKeys()
+	keys.prepare(0xE0, 5)
+	want := append(append([]byte{}, secret...), bytes.Repeat([]byte{0x77}, tsSize-4)...)
+	keys.active.cipher.XORKeyStream(want, want)
+	if !bytes.Equal(got[4+len(clear):tsSize], want[:len(secret)]) || !bytes.Equal(got[tsSize+4:2*tsSize], want[len(secret):]) {
+		t.Error("the keystream was not applied from the first byte after the headers")
+	}
+}
+
+// realSeqHeader is a sequence header with both quantiser matrices, as the
+// Roamio's MPEG-2 recording has: 140 bytes.
+var realSeqHeader = func() []byte {
+	b := []byte{0, 0, 1, 0xB3, 0x78, 0x04, 0x38, 0x34, 0x2F, 0x5D, 0x2F, 0x42}
+	b[11] |= 0x02                                    // an intra matrix follows
+	b = append(b, bytes.Repeat([]byte{0x11}, 63)...) // its first 63 bytes, shifted by a bit
+	b = append(b, 0x11|0x01)                         // ... whose last bit says a second matrix follows
+	b = append(b, bytes.Repeat([]byte{0x12}, 64)...)
+	return b
+}()
+
 func TestTransportStreamDamage(t *testing.T) {
-	plain, _ := plainStream(true)
+	plain, _ := plainStream()
 	header := fileHeader(true)
 
 	// Junk in the middle is skipped, and a partial packet at the end is

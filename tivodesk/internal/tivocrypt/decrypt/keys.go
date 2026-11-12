@@ -1,8 +1,7 @@
 // Package decrypt turns a .TiVo recording into a plain MPEG stream. It is a
 // port of tivodecode-ng (Copyright 2006-2018 Jeremy Drake et al., BSD
-// licence; see LICENSE-tivodecode in this folder), and follows that
-// program's behaviour closely, quirks included, because the position of
-// every byte in the keystream depends on it.
+// licence; see LICENSE-tivodecode in this folder). Program streams follow
+// that program closely. Transport streams do not: see tsDecoder.add.
 package decrypt
 
 import (

@@ -3,7 +3,7 @@
 **A Go + Wails desktop app that fully replaces pyTivo: fast, MAK-based, no Java, no shared code.**
 
 > [!NOTE]
-> **Status: P1 is done on branch `tivodesk`.** The app finds TiVos, lists their recordings and downloads them, still encrypted, and all three are confirmed on both real TiVos; see [P1 progress](#p1-progress-2026-11-11). P2, native decryption, is written and passes its own tests, but has not yet been run on a real recording with the real key; see [P2 progress](#p2-progress-2026-11-11).
+> **Status: P1 is done on branch `tivodesk`.** The app finds TiVos, lists their recordings and downloads them, still encrypted, and all three are confirmed on both real TiVos; see [P1 progress](#p1-progress-2026-11-11). P2, native decryption, is written and decrypts both real transport-stream recordings correctly with the real key; program streams and decrypting during a download from a real TiVo are still untested; see [P2 progress](#p2-progress-2026-11-11).
 > Drafted 2026-10-24, reviewed and revised 2026-11-10.
 > The review checked every claim below against the pyTivo source at commit `2ed403c`, the local toolchain, and current Go and Wails releases. What changed is listed in the [review log](#review-log-2026-11-10).
 
@@ -13,7 +13,7 @@
 | **Stack** | Go engine, Wails v2 shell (WebView2), React + TypeScript + Vite UI, SQLite, external ffmpeg |
 | **Where** | New top-level folder `tivodesk/` (its own Go module) on a new branch `tivodesk` |
 | **pyTivo's role** | Reference only, plus the oracle for golden tests. It stays in the repo untouched |
-| **Next step** | Run `tivodesk-cli decrypt -check` on the two recordings in `D:\tivo-test`. If ffmpeg reads the results cleanly, wire decryption into downloads |
+| **Next step** | Download a recording from a real TiVo with "Decrypt recordings as they download" on, and check the result with ffmpeg. Then find a program-stream recording to test, since none has been decrypted yet |
 
 **Contents:** [Why](#why-replace-pytivo) · [Decisions](#decisions) · [Architecture](#architecture) · [Legacy TLS](#legacy-tls-togo) · [UI](#ui) · [Roadmap](#roadmap) · [Next steps](#next-steps) · [Risks](#risks) · [Verification](#verification) · [Review log](#review-log-2026-11-10)
 
@@ -331,22 +331,41 @@ Development aids: `tivodesk-cli faketivo [-n 684] [-mb 30] [-delay 15ms]` runs a
 
 ### P2 progress (2026-11-11)
 
-Decryption of transport and program streams is written. **It has not yet decrypted a real recording**: that needs the MAK.
+Decryption of transport and program streams is written. **Transport streams are confirmed on two real recordings with the real key.** Program streams have only synthetic tests.
 
 | P2 piece | Status |
 |---|---|
 | Turing cipher, header and metadata | Done in S0. |
-| Transport stream | **Written; passes synthetic tests.** A port of tivodecode-ng: PAT and PMT, the key stream (type `0x97`), and the header walk that finds where each picture's clear headers end. |
+| Transport stream | **Done; confirmed on both real recordings with the key.** PAT and PMT, the key stream (type `0x97`), one keystream per stream that restarts when its block number changes, and a header walk for packets that are only partly encrypted. See "Real runs" below. |
 | Program stream | **Written; passes synthetic tests.** No real program-stream fixture exists yet. |
 | Wrong MAK | Reported before anything is written, by checking that the header's details chunk decrypts to XML. Confirmed on a real file with a deliberately wrong key. |
 | `tivodesk-cli decrypt` | Done, with `-check`, which has ffmpeg decode the result and count errors. |
-| Decrypt while downloading; Decrypt option in the UI | Not started. Waits on the real-file check. |
+| Decrypt while downloading | **Done against the pretend TiVo.** The download feeds a pipe and the decryptor writes the file, so the encrypted recording never reaches the disk. Files are named `.ts` or `.mpg`, without the (TS)/(PS) mark. A wrong MAK fails the transfer at its start. |
+| Setting | **Done.** "Decrypt recordings as they download" in Settings (`togo_decrypt`, on by default). Turned off, the `.tivo` file is kept as before. |
 
 Decisions:
 
 - **ffmpeg is the oracle, not tivolibre.** No Java runtime is installed. ffmpeg decoding the output without errors shows it is correct video; it does not show it is byte-identical to tivolibre's output. The phase's exit criterion changes to match.
 - **The reference is tivodecode-ng (BSD licence)**, not tivolibre (GPL). Its licence text is kept beside the port, in `internal/tivocrypt/decrypt/LICENSE-tivodecode`.
-- **The port keeps the reference's quirks**, because every byte's place in the keystream depends on them. Three deliberate differences, none of which changes a stream the reference handles: packets on PIDs outside the programme are passed through instead of dropped; a start code the reference does not know ends the header walk instead of stalling the stream; the PMT's programme-information length is honoured.
+- **Program streams follow the reference closely. Transport streams follow it except where it is wrong**; see below.
+
+**Real runs (2026-11-11).** ffmpeg found the right streams in both files from the first run (MPEG-2 1080i with AC-3 5.1 from the Roamio; H.264 720p with AC-3 from the Edge), at 700 to 880 MB/s. But the 25-second MPEG-2 file gave 2,650 error lines, and the 8-minute H.264 file 234.
+
+What the files show, found by comparing encrypted and decrypted copies (no key needed):
+
+- Only some packets are scrambled, about one in five.
+- A scrambled packet is nearly always encrypted from the first byte of its payload, PES header included. None of the 9,585 scrambled packets that start a PES packet begins in the clear.
+- The exception: when the clear headers that open a picture run on from an unscrambled packet into a scrambled one, they stay clear there. In the MPEG-2 file this happens at 4 of the 15 key changes: the scrambled packet begins with the last 6 bytes of the sequence extension and the 8-byte group-of-pictures header, and encryption starts at byte 14.
+- tivodecode-ng walks the headers to find this, but shares them out header by header and gives up on one that straddles two packets. Here it started decrypting at byte 8, not 14, and lost its place in the keystream until the next key change. Those four segments were the whole of the damage: every wrongly decrypted frame start was in one of them.
+
+Two fixes were tried:
+
+1. Decrypt every scrambled packet whole, with no header walk. **Wrong**: 5,757 error lines, and ffmpeg took the file for MPEG-1, because the four partly clear packets were now scrambled entirely. This came from checking only the packets that start a PES packet.
+2. Keep the header walk, but measure the headers across the packets as one run of bytes and leave each packet its share. **Checked against the files without the key**: the output of run 1 gives away the keystream for each segment, and applying it 14 bytes later decrypts all four bad segments, each starting with a picture start code and with every frame start correct. **Confirmed with the key**: the MPEG-2 file went from 2,650 error lines to 3, all from the recording starting and stopping mid-frame. Its 779 whole audio frames all pass their checksums, and no packet is missing.
+
+The H.264 file still gives 234 lines, spread through the whole file. **They are damage in the recording, not in the decryption.** The encrypted file is missing packets: the continuity counters jump 64 times in the audio, 66 times in the video, and also in the programme tables, which are never encrypted and which the decryptor does not touch. The audio is encrypted throughout, and every AC-3 frame carries a checksum: 14,879 frames pass and 57 fail, and every one of the 57 sits on a missing packet. The audio is readable again within a frame of each gap, so the keystream stays in step across them; the TiVo encrypts what it stored, gaps included. Every video PES packet starts correctly.
+
+A fault while parsing a recording is turned into an error for that one transfer; the pretend TiVo's filler data found one such fault in the program-stream code, now fixed.
 
 What the tests can and cannot show: the synthetic tests prove the port is self-consistent (what it encrypts it decrypts, headers stay clear, keystreams continue and restart at the right moments, damage is skipped). They cannot prove it matches a TiVo. Only a real recording can.
 
@@ -358,7 +377,7 @@ $env:TIVO_MAK = '<your MAK>'
 go run ./cmd/tivodesk-cli decrypt -check "D:\tivo-test\*.tivo"
 ```
 
-Each recording is written beside the original as `.ts`. A good result shows the video and audio streams ffmpeg found and few or no error lines; a wrong decryption shows thousands.
+Each recording is written beside the original as `.ts`. A good result shows the video and audio streams ffmpeg found and few or no error lines; a wrong decryption shows thousands. A recording with reception dropouts shows a few lines per dropout, however well it is decrypted.
 
 **Where the code is:**
 

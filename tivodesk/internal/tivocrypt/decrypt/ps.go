@@ -185,7 +185,7 @@ func (d *psDecoder) frame(code byte) (bool, error) {
 			}
 			d.verified = true
 		}
-	} else if code == 0xBC {
+	} else if code == 0xBC && len(packet) > 2 {
 		packet[2] &^= 0x20 // the reference clears this bit; the reason is unknown
 	}
 	d.stats.Packets++

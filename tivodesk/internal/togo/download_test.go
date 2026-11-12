@@ -222,30 +222,40 @@ func TestFileName(t *testing.T) {
 		{"local date", r, true, false, time.FixedZone("PST", -8*3600), 1, "Nova - What's Next. - 'The 'Big' One' (Recorded Mar 04, 2021, KQED) (TS).tivo"},
 		{"bare", Recording{ID: "9", Captured: r.Captured}, false, false, utc, 1, "Recording 9 (Recorded Mar 05, 2021) (PS).tivo"},
 	} {
-		if got := FileName(c.r, c.ts, c.sortable, c.loc, c.count); got != c.want {
+		if got := FileName(c.r, c.ts, false, c.sortable, c.loc, c.count); got != c.want {
 			t.Errorf("%s:\n got %s\nwant %s", c.name, got, c.want)
 		}
 	}
 
 	long := r
 	long.Title = strings.Repeat("Very Long ", 60)
-	if n := len(FileName(long, true, false, utc, 1)); n > 210 {
+	if n := len(FileName(long, true, false, false, utc, 1)); n > 210 {
 		t.Errorf("a long title gave a %d-character name", n)
+	}
+}
+
+func TestDecryptedFileName(t *testing.T) {
+	r := Recording{Title: "Nova", EpisodeTitle: "Next", Station: "KQED", Captured: time.Date(2021, 3, 5, 2, 0, 0, 0, time.UTC)}
+	if got := FileName(r, true, true, false, time.UTC, 1); got != "Nova - 'Next' (Recorded Mar 05, 2021, KQED).ts" {
+		t.Errorf("transport stream: %s", got)
+	}
+	if got := FileName(r, false, true, true, time.UTC, 2); got != "Nova - 2021-03-05 - 'Next' (KQED) (2).mpg" {
+		t.Errorf("program stream: %s", got)
 	}
 }
 
 func TestFreePath(t *testing.T) {
 	dir := t.TempDir()
 	r := Recording{Title: "Show", Captured: time.Date(2021, 3, 5, 2, 0, 0, 0, time.UTC)}
-	first := FreePath(dir, r, true, false, time.UTC)
+	first := FreePath(dir, r, true, false, false, time.UTC)
 	if filepath.Base(first) != "Show (Recorded Mar 05, 2021) (TS).tivo" {
 		t.Errorf("first path: %s", first)
 	}
 	// A finished file takes the first name, an unfinished one the second.
 	os.WriteFile(first, nil, 0o644)
-	second := FreePath(dir, r, true, false, time.UTC)
+	second := FreePath(dir, r, true, false, false, time.UTC)
 	os.WriteFile(second+PartSuffix, nil, 0o644)
-	third := FreePath(dir, r, true, false, time.UTC)
+	third := FreePath(dir, r, true, false, false, time.UTC)
 	if !strings.HasSuffix(second, "(TS) (2).tivo") || !strings.HasSuffix(third, "(TS) (3).tivo") {
 		t.Errorf("later paths: %s, %s", second, third)
 	}

@@ -19,6 +19,8 @@ type Stats struct {
 	// Packets is the number of packets read, and Decrypted how many of
 	// them were encrypted.
 	Packets, Decrypted int64
+	// PartlyClear counts encrypted packets that began with clear headers.
+	PartlyClear int64
 	// Undecryptable counts encrypted packets dropped because no key for
 	// their stream had arrived yet.
 	Undecryptable int64
@@ -43,8 +45,14 @@ const bufferSize = 1 << 20
 //
 // A wrong Media Access Key is reported as ErrWrongMAK, before anything is
 // written when the file lets that be checked.
-func Decrypt(r io.Reader, w io.Writer, mak string) (Stats, error) {
-	var stats Stats
+func Decrypt(r io.Reader, w io.Writer, mak string) (stats Stats, err error) {
+	// A recording is untrusted input, and this runs inside a long-lived
+	// app: a fault in parsing one must fail that one, not the program.
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("decrypt: the recording is damaged in a way that could not be handled (%v)", p)
+		}
+	}()
 	br := bufio.NewReaderSize(r, bufferSize)
 
 	// The fixed header says which kind of stream follows.

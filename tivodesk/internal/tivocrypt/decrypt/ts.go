@@ -12,7 +12,7 @@ const (
 	// tivoStreamType marks the stream that carries the keys.
 	tivoStreamType = 0x97
 	// maxPending bounds how many packets wait while the end of a run of
-	// headers is looked for. The reference's buffer holds ten.
+	// headers is looked for.
 	maxPending = 10
 )
 
@@ -20,7 +20,8 @@ const (
 type tsPacket struct {
 	data    [tsSize]byte
 	payload int // offset of the payload
-	// clear is how many payload bytes are headers, which are not encrypted.
+	// clear is how many bytes at the start of the payload are headers that
+	// were left unencrypted although the packet is marked as scrambled.
 	clear int
 }
 
@@ -34,7 +35,9 @@ type tsStream struct {
 	private  bool
 	streamID byte
 	key      [16]byte // private data for this stream, from the key stream
-	pending  []*tsPacket
+	// pending holds packets from the start of a PES packet until it is
+	// known where its headers end.
+	pending []*tsPacket
 }
 
 type tsDecoder struct {
@@ -91,7 +94,13 @@ func (d *tsDecoder) run(r *bufio.Reader) error {
 		}
 		if err := readPacket(r, p, d.stats); err != nil {
 			if err == io.EOF {
-				return d.finish()
+				// Write out whatever was still waiting.
+				for _, s := range d.streams {
+					if err := d.flush(s); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
 			return err
 		}
@@ -127,16 +136,6 @@ func (d *tsDecoder) run(r *bufio.Reader) error {
 			return err
 		}
 	}
-}
-
-// finish writes out packets still waiting when the input ends.
-func (d *tsDecoder) finish() error {
-	for _, s := range d.streams {
-		if err := d.flush(s); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (d *tsDecoder) stream(pid uint16) *tsStream {
@@ -248,13 +247,40 @@ func (d *tsDecoder) tivoKeys(p *tsPacket) {
 	}
 }
 
-// add takes the next packet of a stream. A packet that starts a PES packet
-// is held, with those after it if need be, until it is known where the
-// headers end; only what follows them is encrypted.
+// add takes the next packet of a stream.
+//
+// What a TiVo encrypts, as seen in real recordings (MPEG-2 from a Roamio,
+// H.264 from an Edge, 420,000 scrambled packets between them):
+//
+//   - Only some packets are scrambled, about one in five.
+//   - A scrambled packet is nearly always encrypted from the first byte of
+//     its payload to the last. When it starts a PES packet, the PES header
+//     is encrypted too.
+//   - The exception: when the clear headers that open a picture (sequence
+//     header, sequence extension, group-of-pictures header) run on from an
+//     unscrambled packet into a scrambled one, they stay clear there, and
+//     encryption starts after them. In the MPEG-2 recording this happens
+//     at four of its fifteen key changes.
+//
+// So the packets from the start of a PES packet are held until the end of
+// its headers is found. The headers are measured across the packets as one
+// run of bytes, and each packet's share of that run is left alone.
+//
+// tivodecode-ng does the same walk, but shares the headers out header by
+// header, and gives up on one that straddles two packets. It then starts
+// decrypting the second packet too early and loses its place in the
+// keystream until the next key change. That is the long-known fault in its
+// transport-stream output, and the reason this does not follow it.
 func (d *tsDecoder) add(s *tsStream, p *tsPacket) error {
 	if !p.unitStart() && len(s.pending) == 0 {
 		s.pending = append(s.pending, p)
 		return d.flush(s)
+	}
+	// A new PES packet ends the wait for the previous one's headers.
+	if p.unitStart() && len(s.pending) > 0 {
+		if err := d.flush(s); err != nil {
+			return err
+		}
 	}
 	s.pending = append(s.pending, p)
 
@@ -262,38 +288,23 @@ func (d *tsDecoder) add(s *tsStream, p *tsPacket) error {
 	for _, q := range s.pending {
 		buf = append(buf, q.data[q.payload:]...)
 	}
-	lengths := headerLengths(buf)
-	total := 0
-	for _, l := range lengths {
-		total += l
+	bits := 0
+	for _, l := range headerLengths(buf) {
+		bits += l
 	}
-	total /= 8
-	if total >= len(buf) && len(s.pending) < maxPending {
-		return nil // the headers may run on into the next packet
+	headers := bits / 8
+	if headers >= len(buf) {
+		if len(s.pending) < maxPending {
+			return nil // the headers may run on into the next packet
+		}
+		// Nothing real has headers this long. Whatever was being measured
+		// was not headers, so treat none of it as clear.
+		headers = 0
 	}
-
-	// Mark, packet by packet, how much of each is header. This follows the
-	// reference exactly, including what it does when a header straddles
-	// two packets.
 	for _, q := range s.pending {
-		if total <= 0 {
-			break
-		}
-		for len(lengths) > 0 {
-			l := lengths[0] / 8
-			lengths = lengths[1:]
-			if l+q.payload+q.clear < tsSize {
-				q.clear += l
-				total -= l
-				continue
-			}
-			if room := tsSize - q.payload - q.clear; room < 4 {
-				// The packet ends inside a start code; the rest of the
-				// header is in the next packet.
-				lengths = append([]int{(l - room) * 8}, lengths...)
-			}
-			break
-		}
+		size := tsSize - q.payload
+		q.clear = min(headers, size)
+		headers -= q.clear
 	}
 	return d.flush(s)
 }
@@ -306,17 +317,20 @@ func (d *tsDecoder) flush(s *tsStream) error {
 			p.data[3] &^= 0xC0
 			block, ok := blockNumber(s.key[:])
 			if !ok {
-				// No key has arrived for this stream yet. The reference
-				// drops such packets, and so do we: they cannot be played.
+				// No key has arrived for this stream yet. The packet cannot
+				// be played, so it is dropped, as the reference drops it.
 				d.stats.Undecryptable++
 				write = false
 			} else {
 				if err := d.keys.prepare(s.streamID, block); err != nil {
 					return err
 				}
-				from := min(p.payload+p.clear, tsSize)
+				from := p.payload + p.clear
 				d.keys.active.cipher.XORKeyStream(p.data[from:], p.data[from:])
 				d.stats.Decrypted++
+				if p.clear > 0 {
+					d.stats.PartlyClear++
+				}
 			}
 		}
 		if write {

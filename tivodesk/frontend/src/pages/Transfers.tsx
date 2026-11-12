@@ -87,6 +87,7 @@ export default function Transfers({transfers, tivos, config, go}: AppState) {
                                     </div>
                                     <div className="sub plain">
                                         {t.tivoName} · {size(t.recording.size)} · {t.ts ? 'transport stream' : 'program stream'}
+                                        {t.decrypt ? ' · decrypted' : ' · kept as .tivo'}
                                     </div>
                                 </td>
                                 <td className="status">

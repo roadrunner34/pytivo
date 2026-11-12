@@ -122,7 +122,8 @@ func (s *Server) Downloads() []string {
 }
 
 // Recording returns the bytes of the .TiVo file the server sends for a
-// download: a 1024-byte header and then video packets. A program stream has
+// download: a 1024-byte header and then video packets. Nothing in it is
+// encrypted, so decrypting it gives the packets back unchanged. A program stream has
 // no packet structure, so there the packets are filler.
 func Recording(packets int, ts bool) []byte {
 	const headerSize = 1024
@@ -133,6 +134,13 @@ func Recording(packets int, ts bool) []byte {
 		binary.BigEndian.PutUint16(b[6:], 0x20)
 	}
 	binary.BigEndian.PutUint32(b[10:], headerSize)
+	// One plain-text chunk, from which a decryptor derives its key.
+	chunk := "<?xml version=\"1.0\"?><pretend/>"
+	binary.BigEndian.PutUint16(b[14:], 1)
+	binary.BigEndian.PutUint32(b[16:], uint32(12+len(chunk)))
+	binary.BigEndian.PutUint32(b[20:], uint32(len(chunk)))
+	binary.BigEndian.PutUint16(b[24:], 3)
+	copy(b[28:], chunk)
 	for i := 0; i < packets; i++ {
 		p := b[headerSize+i*188:]
 		if ts {

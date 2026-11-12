@@ -63,6 +63,7 @@ function Server({config, save}: AppState) {
     const [ffmpeg, setFfmpeg] = useState('')
     const [togo, setTogo] = useState('')
     const [debug, setDebug] = useState(false)
+    const [decrypt, setDecrypt] = useState(true)
     const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
 
     // Reset the form whenever the stored settings change, such as after an
@@ -72,6 +73,8 @@ function Server({config, save}: AppState) {
         setFfmpeg(config.server.ffmpeg ?? '')
         setTogo(config.server.togo_path ?? '')
         setDebug(['1', 'yes', 'true', 'on'].includes((config.server.debug ?? '').toLowerCase()))
+        // Decrypting is the default; only an explicit "no" turns it off.
+        setDecrypt(!['0', 'no', 'false', 'off'].includes((config.server.togo_decrypt ?? '').toLowerCase()))
     }, [config])
 
     const pick = async (kind: 'file' | 'folder', title: string, set: (v: string) => void) => {
@@ -98,6 +101,7 @@ function Server({config, save}: AppState) {
         put('ffmpeg', ffmpeg)
         put('togo_path', togo)
         put('debug', debug ? 'true' : '')
+        put('togo_decrypt', decrypt ? '' : 'false')
         try {
             await save({...config, server})
             setStatus({ok: true, text: 'Saved.'})
@@ -127,6 +131,12 @@ function Server({config, save}: AppState) {
                            value={togo} onChange={e => setTogo(e.target.value)}/>
                     <button onClick={() => pick('folder', 'Choose where recordings are saved', setTogo)}>Browse…</button>
                 </div>
+
+                <span/>
+                <label className="check">
+                    <input type="checkbox" checked={decrypt} onChange={e => setDecrypt(e.target.checked)}/>
+                    Decrypt recordings as they download, so any player can open them
+                </label>
 
                 <span/>
                 <label className="check">

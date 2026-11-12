@@ -92,6 +92,7 @@ export interface Transfer {
     tivoName: string
     recording: Recording
     ts: boolean
+    decrypt: boolean
     state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
     error: string
     path: string

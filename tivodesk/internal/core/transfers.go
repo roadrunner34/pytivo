@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"tivodesk/internal/events"
 	"tivodesk/internal/store"
 	"tivodesk/internal/tivo"
+	"tivodesk/internal/tivocrypt/decrypt"
 	"tivodesk/internal/togo"
 )
 
@@ -113,6 +115,9 @@ func (e *Engine) Transfers() []store.Job {
 // be downloaded (copy protected, or still recording) and ones already
 // waiting are left out.
 //
+// Recordings are decrypted as they download unless the togo_decrypt
+// setting is off, in which case the .tivo files are kept as they are.
+//
 // format is "ts" or "ps" to force a transport or program stream, or empty
 // to use a transport stream wherever the TiVo offers one.
 func (e *Engine) QueueDownloads(tsn string, ids []string, format string) (int, error) {
@@ -123,9 +128,11 @@ func (e *Engine) QueueDownloads(tsn string, ids []string, format string) (int, e
 	if _, err := e.makFor(tsn); err != nil {
 		return 0, err
 	}
-	if _, err := e.downloadDir(e.Config()); err != nil {
+	cfg := e.Config()
+	if _, err := e.downloadDir(cfg); err != nil {
 		return 0, err
 	}
+	decrypted := cfg.ServerBool("togo_decrypt", true)
 	ts := config.IsTSCapable(tsn)
 	switch strings.ToLower(format) {
 	case "", "ts":
@@ -172,7 +179,7 @@ func (e *Engine) QueueDownloads(tsn string, ids []string, format string) (int, e
 			continue
 		}
 		job := &store.Job{
-			TSN: tsn, TiVoName: box.Name, Recording: r, TS: ts,
+			TSN: tsn, TiVoName: box.Name, Recording: r, TS: ts, Decrypt: decrypted,
 			State: store.Queued, Created: time.Now(),
 		}
 		if err := e.store.AddJob(job); err != nil {
@@ -407,7 +414,7 @@ func (e *Engine) download(ctx context.Context, job *store.Job) (wait bool) {
 		fail(fmt.Errorf("could not create the recordings folder: %w", err))
 		return false
 	}
-	path := togo.FreePath(dir, job.Recording, job.TS, cfg.ServerBool("togo_sortable_names", false), time.Local)
+	path := togo.FreePath(dir, job.Recording, job.TS, job.Decrypt, cfg.ServerBool("togo_sortable_names", false), time.Local)
 	part := path + togo.PartSuffix
 	f, err := os.Create(part)
 	if err != nil {
@@ -417,10 +424,28 @@ func (e *Engine) download(ctx context.Context, job *store.Job) (wait bool) {
 	set(func() { job.Path = path })
 	e.logger.Info("download started", "tivo", box.Name, "file", path)
 
+	// To decrypt, the download feeds a pipe and the decryptor writes the
+	// file, so the encrypted recording never reaches the disk.
+	var out io.Writer = f
+	var pipe *io.PipeWriter
+	decrypting := make(chan error, 1)
+	if job.Decrypt {
+		var from *io.PipeReader
+		from, pipe = io.Pipe()
+		out = pipe
+		go func() {
+			_, err := decrypt.Decrypt(from, f, mak)
+			// If decryption stopped early, this makes the download's next
+			// write fail with the reason, which stops the download too.
+			from.CloseWithError(err)
+			decrypting <- err
+		}()
+	}
+
 	// Progress reaches the UI twice a second at most.
 	start := time.Now()
 	lastTime, lastBytes := start, int64(0)
-	res, err := client.Download(ctx, job.Recording.ContentURL, f, togo.DownloadOptions{
+	res, err := client.Download(ctx, job.Recording.ContentURL, out, togo.DownloadOptions{
 		TS: job.TS,
 		Progress: func(written int64, losses int) {
 			now := time.Now()
@@ -438,6 +463,12 @@ func (e *Engine) download(ctx context.Context, job *store.Job) (wait bool) {
 			e.bus.Publish(events.TransferProgress, p)
 		},
 	})
+	if pipe != nil {
+		pipe.CloseWithError(err) // with no error, this is the end of the input
+		if decryptErr := <-decrypting; decryptErr != nil && (err == nil || errors.Is(decryptErr, decrypt.ErrWrongMAK)) {
+			err = decryptErr
+		}
+	}
 	if closeErr := f.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("could not finish writing the file: %w", closeErr)
 	}

@@ -28,9 +28,12 @@ const maxNameLength = 200
 //
 //	Title - 2021-03-05 - 'Episode' (KQED) (TS).tivo
 //
+// A decrypted recording is an ordinary video file, so it drops the (TS) or
+// (PS) mark and ends in .ts or .mpg instead.
+//
 // The date is shown in loc. count is 1 for the first file of that name; a
 // higher count adds " (count)" to tell duplicates apart.
-func FileName(r Recording, ts, sortable bool, loc *time.Location, count int) string {
+func FileName(r Recording, ts, decrypted, sortable bool, loc *time.Location, count int) string {
 	name := r.Title
 	if name == "" {
 		name = "Recording " + r.ID
@@ -54,9 +57,15 @@ func FileName(r Recording, ts, sortable bool, loc *time.Location, count int) str
 		}
 		tail += ")"
 	}
-	if ts {
+	ext := ".tivo"
+	switch {
+	case decrypted && ts:
+		ext = ".ts"
+	case decrypted:
+		ext = ".mpg"
+	case ts:
 		tail += " (TS)"
-	} else {
+	default:
 		tail += " (PS)"
 	}
 	if count > 1 {
@@ -68,7 +77,7 @@ func FileName(r Recording, ts, sortable bool, loc *time.Location, count int) str
 	if room := maxNameLength - len([]rune(tail)); len([]rune(name)) > room {
 		name = string([]rune(name)[:max(room, 20)])
 	}
-	return strings.TrimLeft(name+tail, " ") + ".tivo"
+	return strings.TrimLeft(name+tail, " ") + ext
 }
 
 // exists reports whether a file is present.
@@ -82,9 +91,9 @@ const PartSuffix = ".part"
 
 // FreePath returns a path in dir for a recording that no finished or
 // unfinished download already uses.
-func FreePath(dir string, r Recording, ts, sortable bool, loc *time.Location) string {
+func FreePath(dir string, r Recording, ts, decrypted, sortable bool, loc *time.Location) string {
 	for count := 1; ; count++ {
-		path := filepath.Join(dir, FileName(r, ts, sortable, loc, count))
+		path := filepath.Join(dir, FileName(r, ts, decrypted, sortable, loc, count))
 		if !exists(path) && !exists(path+PartSuffix) {
 			return path
 		}

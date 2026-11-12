@@ -31,6 +31,7 @@ func downloader(t *testing.T, dir string, fake *faketivo.Server) (*Engine, strin
 	out := filepath.Join(dir, "recordings")
 	cfg := e.Config()
 	cfg.Server["togo_path"] = out
+	cfg.Server["togo_decrypt"] = "false" // these tests are about the raw download
 	if _, err := e.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -323,5 +324,53 @@ func TestQueueSurvivesRestart(t *testing.T) {
 	jobs = waitTransfers(t, second)
 	if jobs[0].State != store.Done || jobs[1].State != store.Done {
 		t.Errorf("after the restart: %s (%s), %s (%s)", jobs[0].State, jobs[0].Error, jobs[1].State, jobs[1].Error)
+	}
+}
+
+// By default a recording is decrypted as it downloads and saved as an
+// ordinary video file. The fake TiVo's recordings are not encrypted, so
+// what comes out is the video packets without the .TiVo header.
+func TestDownloadDecrypts(t *testing.T) {
+	fake := faketivo.New(t, testMAK, 30)
+	e, out := downloader(t, t.TempDir(), fake)
+	cfg := e.Config()
+	delete(cfg.Server, "togo_decrypt")
+	e.SaveConfig(cfg)
+
+	if n, err := e.QueueDownloads(tsTSN, []string{"1003"}, ""); err != nil || n != 1 {
+		t.Fatalf("queue: %d, %v", n, err)
+	}
+	if n, err := e.QueueDownloads(tsTSN, []string{"1004"}, "ps"); err != nil || n != 1 {
+		t.Fatalf("queue: %d, %v", n, err)
+	}
+	jobs := waitTransfers(t, e)
+	for i, ts := range []bool{true, false} {
+		j := jobs[i]
+		ext := map[bool]string{true: ".ts", false: ".mpg"}[ts]
+		if j.State != store.Done || !j.Decrypt || filepath.Ext(j.Path) != ext || strings.Contains(j.Path, "(TS)") {
+			t.Errorf("transfer: %+v", j)
+		}
+		got, err := os.ReadFile(j.Path)
+		want := faketivo.Recording(4000, ts)[1024:]
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("%s: %v; %d bytes, want %d", filepath.Base(j.Path), err, len(got), len(want))
+		}
+		if _, err := os.Stat(j.Path + ".txt"); err != nil {
+			t.Errorf("no details file beside %s", filepath.Base(j.Path))
+		}
+	}
+	if left, _ := os.ReadDir(out); len(left) != 4 {
+		t.Errorf("%d files in the folder, want two videos and two details files", len(left))
+	}
+
+	// A download that breaks leaves nothing behind when decrypting, too.
+	fake.TruncateDownloads(1)
+	e.QueueDownloads(tsTSN, []string{"1005"}, "")
+	jobs = waitTransfers(t, e)
+	if jobs[2].State != store.Failed || !strings.Contains(jobs[2].Error, "cut short") {
+		t.Errorf("a broken download: %+v", jobs[2])
+	}
+	if left, _ := os.ReadDir(out); len(left) != 4 {
+		t.Errorf("a failed download left files behind: %d in the folder", len(left))
 	}
 }
